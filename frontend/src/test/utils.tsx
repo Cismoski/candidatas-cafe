@@ -24,6 +24,7 @@ export interface Call {
   method: string;
   headers: Headers;
   body: BodyInit | null | undefined;
+  signal?: AbortSignal | null;
 }
 
 /** Instala um fetch falso roteado por "MÉTODO caminho". Guarda o corpo original
@@ -32,7 +33,13 @@ export function mockFetch(routes: Record<string, (call: Call) => Response | Prom
   const calls: Call[] = [];
   const fn = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const url = new URL(String(input), window.location.href).toString();
-    const call = { url, method: init.method ?? "GET", headers: new Headers(init.headers), body: init.body };
+    const call = {
+      url,
+      method: init.method ?? "GET",
+      headers: new Headers(init.headers),
+      body: init.body,
+      signal: init.signal,
+    };
     calls.push(call);
     const handler = routes[`${call.method} ${new URL(url).pathname}`];
     if (!handler) throw new TypeError("Failed to fetch");

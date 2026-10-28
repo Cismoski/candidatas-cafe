@@ -35,7 +35,8 @@ export class ApiError extends Error {
 }
 
 export function kindOf(status: number): ErrorKind {
-  if (status === 0) return "network";
+  // 0 = sem resposta; 502/504 = proxy do host enquanto a API acorda do sono
+  if (status === 0 || status === 502 || status === 504) return "network";
   if (status === 401) return "unauthorized";
   if (status === 404) return "not_found";
   if (status === 409) return "conflict";
@@ -74,7 +75,10 @@ export function messageFrom(status: number, body: unknown): string {
 }
 
 type TokenGetter = () => string | null;
-type UnauthorizedHandler = () => void;
+/** Recebe o token que levou o 401: só a sessão que fez a requisição é encerrada. */
+type UnauthorizedHandler = (token: string) => void;
+/** Sinal abortado no fim da sessão: nada iniciado por um usuário termina no cache do próximo. */
+type SignalGetter = () => AbortSignal | undefined;
 
 export class ApiClient {
   constructor(
@@ -82,15 +86,18 @@ export class ApiClient {
     private readonly getToken: TokenGetter,
     private readonly onUnauthorized: UnauthorizedHandler,
     private readonly fetchImpl: typeof fetch = (...a) => fetch(...a),
+    private readonly sessionSignal: SignalGetter = () => undefined,
   ) {}
 
   private async raw(path: string, init: RequestInit = {}): Promise<Response> {
     const headers = new Headers(init.headers);
     const token = this.getToken();
     if (token) headers.set("Authorization", `Bearer ${token}`);
+    const signals = [init.signal, this.sessionSignal()].filter((x): x is AbortSignal => !!x);
+    const signal = signals.length > 1 ? AbortSignal.any(signals) : signals[0];
     let res: Response;
     try {
-      res = await this.fetchImpl(`${this.base}${path}`, { ...init, headers });
+      res = await this.fetchImpl(`${this.base}${path}`, { ...init, headers, signal });
     } catch (e) {
       if ((e as Error)?.name === "AbortError") throw e;
       throw new ApiError(0, FALLBACK.network);
@@ -103,7 +110,7 @@ export class ApiClient {
         /* corpo não-JSON (ex.: página de erro do proxy) */
       }
       // Só derruba a sessão se havia token: 401 no login é "credencial inválida"
-      if (res.status === 401 && token) this.onUnauthorized();
+      if (res.status === 401 && token) this.onUnauthorized(token);
       throw new ApiError(res.status, messageFrom(res.status, body));
     }
     return res;

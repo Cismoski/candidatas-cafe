@@ -61,6 +61,7 @@ export function useCreateAnalysis() {
   const { api } = useAuth();
   const qc = useQueryClient();
   return useMutation({
+    retry: false, // envio de arquivo nunca é repetido sozinho (gasta cota e banda)
     mutationFn: (n: NewAnalysis) => {
       const form = new FormData();
       form.append("primary", n.primary);

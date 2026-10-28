@@ -33,9 +33,13 @@ export function AuthProvider({ children, baseUrl = API_URL }: { children: ReactN
   // Ref para o cliente ler o token atual sem ser recriado a cada login
   const sessionRef = useRef(session);
   sessionRef.current = session;
+  const abortRef = useRef(new AbortController());
 
   const end = useCallback(
     (reason: EndReason) => {
+      // Cancela uploads/downloads em andamento deste usuário
+      abortRef.current.abort();
+      abortRef.current = new AbortController();
       clear();
       setSession(null);
       setEndReason(reason);
@@ -50,7 +54,12 @@ export function AuthProvider({ children, baseUrl = API_URL }: { children: ReactN
       new ApiClient(
         baseUrl,
         () => (isValid(sessionRef.current) ? sessionRef.current.token : null),
-        () => end("expired"),
+        (token) => {
+          // 401 atrasado de uma sessão anterior não derruba a atual
+          if (sessionRef.current?.token === token) end("expired");
+        },
+        undefined,
+        () => abortRef.current.signal,
       ),
     [baseUrl, end],
   );

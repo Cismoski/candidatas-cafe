@@ -118,3 +118,41 @@ it("sair revoga o token no backend e limpa a sessão", async () => {
   expect(sessionStorage.getItem("gw.session")).toBeNull();
   expect(screen.queryByText(/Sua sessão expirou/)).not.toBeInTheDocument();
 });
+
+it("análise apagada em outra aba que ainda está no topo da lista: sem loop de requisições", async () => {
+  signIn();
+  let listCalls = 0;
+  const { fn } = mockFetch({
+    "GET /analyses": () => {
+      listCalls += 1;
+      return json(listCalls === 1 ? [item] : []); // a lista atualizada já não tem a análise
+    },
+    [`GET /analyses/${a.id}`]: () => json({ detail: "Análise não encontrada." }, 404),
+  });
+  renderWithProviders(<App />);
+  expect(await screen.findByRole("heading", { name: "Nova análise" })).toBeInTheDocument();
+  await new Promise((r) => setTimeout(r, 300));
+  const detailCalls = fn.mock.calls.filter(([u]) => String(u).endsWith(a.id)).length;
+  expect(detailCalls).toBe(1);
+});
+
+it("sair durante um upload cancela a requisição (a resposta não chega ao próximo usuário)", async () => {
+  signIn();
+  const { calls } = mockFetch({
+    "GET /analyses": () => json([]),
+    "POST /auth/logout": () => new Response(null, { status: 204 }),
+    "POST /analyses": () => new Promise<Response>(() => {}), // upload grande, ainda em curso
+  });
+  renderWithProviders(<App />);
+  const user = userEvent.setup({ applyAccept: false });
+  await user.upload(
+    await screen.findByLabelText("Imagem principal"),
+    new File([new Uint8Array([0x49, 0x49, 0x2a, 0x00])], "a.tif"),
+  );
+  await user.click(screen.getByRole("button", { name: "Processar imagem" }));
+  const upload = calls.find((c) => c.method === "POST" && c.url.endsWith("/analyses"));
+  expect(upload?.signal?.aborted).toBe(false);
+  await user.click(screen.getByRole("button", { name: "Sair" }));
+  await screen.findByRole("heading", { name: /Onde pode haver café/ });
+  expect(upload?.signal?.aborted).toBe(true);
+});

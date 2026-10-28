@@ -3,6 +3,8 @@ import { ApiClient, ApiError, kindOf, messageFrom } from "./client";
 describe("kindOf (um ramo por status)", () => {
   it.each([
     [0, "network"],
+    [502, "network"], // proxy do host com a API dormindo
+    [504, "network"],
     [401, "unauthorized"],
     [404, "not_found"],
     [409, "conflict"],
@@ -65,7 +67,7 @@ describe("ApiClient", () => {
     const f = async () => new Response('{"detail":"Token expirado."}', { status: 401 });
     const { api, onUnauthorized } = client(f as typeof fetch);
     await expect(api.listAnalyses()).rejects.toMatchObject({ status: 401, message: "Token expirado." });
-    expect(onUnauthorized).toHaveBeenCalledOnce();
+    expect(onUnauthorized).toHaveBeenCalledWith("tok");
   });
 
   it("401 sem token (login recusado) não dispara expiração", async () => {
@@ -93,10 +95,17 @@ describe("ApiClient", () => {
   });
 
   it("corpo de erro não-JSON usa a mensagem padrão", async () => {
-    const f = async () => new Response("<html>502</html>", { status: 502 });
+    const f = async () => new Response("<html>500</html>", { status: 500 });
     await expect(client(f as typeof fetch).api.listAnalyses()).rejects.toMatchObject({
       kind: "server",
-      status: 502,
+      status: 500,
+    });
+  });
+
+  it("502 do proxy (API acordando) orienta a esperar", async () => {
+    const f = async () => new Response("<html>502 Bad Gateway</html>", { status: 502 });
+    await expect(client(f as typeof fetch).api.listAnalyses()).rejects.toMatchObject({
+      message: expect.stringMatching(/acordando/),
     });
   });
 
@@ -116,5 +125,21 @@ describe("ApiClient", () => {
     const f = vi.fn(async () => new Response("{}", { status: 200 }));
     await client(f as unknown as typeof fetch).api.getAnalysis("../x");
     expect((f.mock.calls[0] as unknown as [string])[0]).toBe("http://api/analyses/..%2Fx");
+  });
+});
+
+describe("sinal da sessão", () => {
+  it("abortar a sessão cancela a requisição em andamento", async () => {
+    const session = new AbortController();
+    const f = vi.fn(
+      (_: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+        }),
+    );
+    const api = new ApiClient("http://api", () => "tok", vi.fn(), f as unknown as typeof fetch, () => session.signal);
+    const p = api.file("id", "png", new AbortController().signal); // combina com o sinal da query
+    session.abort();
+    await expect(p).rejects.toMatchObject({ name: "AbortError" });
   });
 });

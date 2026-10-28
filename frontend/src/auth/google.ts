@@ -37,13 +37,13 @@ export function loadGoogleIdentity(): Promise<GoogleId> {
     const s = document.createElement("script");
     s.src = SRC;
     s.async = true;
-    s.onload = () =>
-      window.google?.accounts?.id ? resolve(window.google.accounts.id) : reject(new Error("gsi"));
-    s.onerror = () => {
+    const fail = () => {
       loading = null; // permite tentar de novo
       s.remove();
       reject(new Error("gsi"));
     };
+    s.onload = () => (window.google?.accounts?.id ? resolve(window.google.accounts.id) : fail());
+    s.onerror = fail;
     document.head.appendChild(s);
   });
   return loading;

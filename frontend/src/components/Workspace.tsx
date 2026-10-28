@@ -1,5 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { FeatureCollection } from "geojson";
+import type { AnalysisItem } from "../api/types";
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { ApiError } from "../api/client";
 import { keys, shouldRetry, useAnalyses, useAnalysis, useAnalysisFile } from "../api/queries";
@@ -20,6 +21,7 @@ const readHash = () => HASH.exec(window.location.hash)?.[1] ?? null;
 
 export function Workspace() {
   const { user, logout, api } = useAuth();
+  const qc = useQueryClient();
   const list = useAnalyses();
   const [selectedId, setSelectedId] = useState<string | null>(readHash);
   const [uploading, setUploading] = useState(false);
@@ -51,10 +53,17 @@ export function Workspace() {
   }, [items, selectedId, select]);
 
   const detail = useAnalysis(selectedId);
-  // Análise apagada, expirada ou de outro usuário (link antigo): volta ao início
+  // Análise apagada (em outra aba), expirada ou de outro usuário (link antigo).
+  // Tira a análise do cache da lista ANTES de desmarcar: senão a seleção
+  // automática escolheria a mesma análise de novo, em loop.
   useEffect(() => {
-    if (detail.error instanceof ApiError && detail.error.kind === "not_found") select(null);
-  }, [detail.error, select]);
+    if (!(detail.error instanceof ApiError && detail.error.kind === "not_found") || !selectedId) return;
+    const gone = selectedId;
+    qc.setQueryData<AnalysisItem[]>(keys.list, (l) => l?.filter((x) => x.id !== gone));
+    qc.removeQueries({ queryKey: keys.one(gone) });
+    void qc.invalidateQueries({ queryKey: keys.list, exact: true });
+    select(null);
+  }, [detail.error, selectedId, select, qc]);
 
   const analysis = detail.data;
   const done = analysis?.status === "done" && analysis.summary != null;
@@ -125,7 +134,11 @@ export function Workspace() {
               key={analysis.id}
               analysis={analysis}
               focusPolygon={focusPolygon}
-              onFocusPolygon={setFocusPolygon}
+              onFocusPolygon={(pid) => {
+                setFocusPolygon(pid);
+                // no celular o painel cobre o mapa: recolhe para mostrar o polígono
+                if (pid !== null && !window.matchMedia?.("(min-width: 861px)").matches) setSheetOpen(false);
+              }}
               onDeleted={() => select(null)}
               onNew={() => setUploading(true)}
             />
