@@ -111,12 +111,40 @@ export interface Summary {
     overlay_crs: string;
     /** Cantos TL, TR, BR, BL em lon/lat (ordem da image source do MapLibre). */
     coordinates: [LngLat, LngLat, LngLat, LngLat];
+    /** overlay_referencia.png existe (café do MapBiomas na grade da cena) */
+    reference_overlay?: boolean;
   };
+  /** Concordância com o MapBiomas; null quando a comparação está desligada */
+  reference?: Reference | null;
   limitations: string[];
   attribution: string;
 }
 
-export type DownloadName = "geojson" | "png" | "geotiff" | "overlay-rgb" | "overlay-classes";
+export type DownloadName = "geojson" | "png" | "geotiff" | "overlay-rgb" | "overlay-classes" | "overlay-reference";
+
+interface ReferenceMeta {
+  source: string;
+  year: number;
+  license: string;
+  info_url: string;
+  citation: string;
+  note: string;
+}
+
+export type Reference =
+  | (ReferenceMeta & {
+      status: "ok";
+      compared_area_ha: number;
+      reference_coffee_ha: number;
+      candidate_ha: number;
+      intersection_ha: number;
+      iou: number | null;
+      candidates_on_reference_coffee: number | null;
+      reference_coffee_in_candidates: number | null;
+      candidates_by_reference_class: Record<string, number>;
+      reference_coffee_by_our_class: Record<string, number>;
+    })
+  | (ReferenceMeta & { status: "unavailable" | "no_coverage"; reason: string });
 
 export interface ChatMessage {
   id: number;

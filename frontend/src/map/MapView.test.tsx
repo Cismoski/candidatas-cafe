@@ -131,7 +131,7 @@ const FC: FeatureCollection = {
     properties: { id, area_ha: id, ndvi_mean: 0.5, ndwi_mean: -0.5, savi_mean: 0.3, point_lon: 0, point_lat: 0 },
   })),
 };
-const LAYERS = { rgb: true, classes: true, polygons: true };
+const LAYERS = { rgb: true, classes: true, polygons: true, reference: false };
 
 // createImageBitmap controlável: cada chamada fica pendente até resolvermos
 type Pending = { blob: Blob; resolve: (b: ImageBitmap) => void };
@@ -261,4 +261,25 @@ it("decodificação que falha mostra aviso específico (não 'WebGL')", async ()
   setup({ rgb: new Blob(["y"]) });
   await flush();
   expect(screen.getAllByRole("status").at(-1)).toHaveTextContent("Não foi possível desenhar a imagem");
+});
+
+it("camada do MapBiomas entra abaixo dos polígonos e respeita o liga/desliga", async () => {
+  const { map, rerender, base } = setup({ rgb: new Blob(["r"]), classes: new Blob(["c"]), reference: new Blob(["m"]) });
+  const [r, c, m] = decodes;
+  r?.resolve(bitmap("rgb"));
+  c?.resolve(bitmap("classes"));
+  m?.resolve(bitmap("ref"));
+  await flush();
+  expect(map.layers).toEqual([
+    "overlay-rgb",
+    "overlay-classes",
+    "overlay-reference",
+    "candidates-fill",
+    "candidates-line",
+    "candidates-focus",
+  ]);
+  expect(map.visibility["overlay-reference"]).toBe("none"); // LAYERS.reference = false
+  rerender(<MapView {...base} reference={base.reference} layers={{ ...LAYERS, reference: true }} />);
+  await flush();
+  expect(map.visibility["overlay-reference"]).toBe("visible");
 });

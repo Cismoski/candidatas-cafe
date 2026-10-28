@@ -36,6 +36,7 @@ export interface Layers {
   rgb: boolean;
   classes: boolean;
   polygons: boolean;
+  reference: boolean;
 }
 
 export interface MapViewProps {
@@ -43,6 +44,8 @@ export interface MapViewProps {
   coordinates: [LngLat, LngLat, LngLat, LngLat] | null;
   rgb: Blob | null;
   classes: Blob | null;
+  /** Café do MapBiomas (referência independente), quando houver */
+  reference?: Blob | null;
   polygons: FeatureCollection | null;
   layers: Layers;
   focusPolygon: number | null;
@@ -60,15 +63,16 @@ setWorkerUrl(workerUrl);
 const BLANK_STYLE = { version: 8 as const, sources: {}, layers: [] };
 
 const EMPTY_FC: FeatureCollection = { type: "FeatureCollection", features: [] };
-const IMAGE_LAYERS = { rgb: "overlay-rgb", classes: "overlay-classes" } as const;
+const IMAGE_LAYERS = { rgb: "overlay-rgb", classes: "overlay-classes", reference: "overlay-reference" } as const;
 const POLY = "candidates";
 
 export function MapView(props: MapViewProps) {
   const { analysisId, coordinates, rgb, classes, polygons, layers, focusPolygon } = props;
+  const reference = props.reference ?? null;
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MLMap | null>(null);
   const popupRef = useRef<Popup | null>(null);
-  const bitmapsRef = useRef<{ rgb?: ImageBitmap; classes?: ImageBitmap }>({});
+  const bitmapsRef = useRef<Partial<Record<keyof typeof IMAGE_LAYERS, ImageBitmap>>>({});
   const onSelect = useRef(props.onSelectPolygon);
   onSelect.current = props.onSelectPolygon;
   const onView = useRef(props.onViewChange);
@@ -159,8 +163,7 @@ export function MapView(props: MapViewProps) {
       popup?.remove();
       map.remove();
       mapRef.current = null;
-      bitmapsRef.current.rgb?.close();
-      bitmapsRef.current.classes?.close();
+      for (const b of Object.values(bitmapsRef.current)) b?.close();
       bitmapsRef.current = {};
     };
     // o mapa é criado uma única vez; props.interactive é lida só na montagem
@@ -174,15 +177,17 @@ export function MapView(props: MapViewProps) {
     if (!map || !ready) return;
     let cancelled = false;
     const decode = (b: Blob | null) => (b && coordinates ? createImageBitmap(b) : Promise.resolve(null));
-    void Promise.all([decode(rgb), decode(classes)])
-      .then(([rgbBitmap, classesBitmap]) => {
+    void Promise.all([decode(rgb), decode(classes), decode(reference)])
+      .then(([rgbBitmap, classesBitmap, referenceBitmap]) => {
         if (cancelled) {
           rgbBitmap?.close();
           classesBitmap?.close();
+          referenceBitmap?.close();
           return;
         }
         place(map, "rgb", rgbBitmap);
         place(map, "classes", classesBitmap);
+        place(map, "reference", referenceBitmap);
         applyVisibility(map, layersRef.current);
         setProblem((p) => (p === "overlay" ? null : p));
       })
@@ -211,7 +216,7 @@ export function MapView(props: MapViewProps) {
           paint: {
             "raster-opacity": kind === "rgb" ? 1 : 0.85,
             // classes são categóricas: sem interpolação entre cores
-            "raster-resampling": kind === "classes" ? "nearest" : "linear",
+            "raster-resampling": kind === "rgb" ? "linear" : "nearest",
             "raster-fade-duration": 0,
           },
         },
@@ -219,7 +224,7 @@ export function MapView(props: MapViewProps) {
       );
     }
     // a visibilidade tem efeito próprio (e é lida do ref aqui); este só reage aos dados
-  }, [ready, rgb, classes, coordinates]);
+  }, [ready, rgb, classes, reference, coordinates]);
 
   // Polígonos
   useEffect(() => {
@@ -306,6 +311,7 @@ function applyVisibility(map: MLMap, layers: Layers) {
   };
   set(IMAGE_LAYERS.rgb, layers.rgb);
   set(IMAGE_LAYERS.classes, layers.classes);
+  set(IMAGE_LAYERS.reference, layers.reference);
   for (const s of ["fill", "line", "focus"]) set(`${POLY}-${s}`, layers.polygons);
 }
 

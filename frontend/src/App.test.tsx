@@ -4,8 +4,13 @@ import { App } from "./App";
 import { json, makeAnalysis, mockFetch, renderWithProviders, signIn } from "./test/utils";
 
 vi.mock("./map/MapView", () => ({
-  MapView: (p: { analysisId: string | null; polygons: unknown }) => (
-    <div data-testid="map" data-analysis={p.analysisId ?? ""} data-polygons={p.polygons ? "sim" : "nao"} />
+  MapView: (p: { analysisId: string | null; polygons: unknown; reference?: Blob | null }) => (
+    <div
+      data-testid="map"
+      data-analysis={p.analysisId ?? ""}
+      data-polygons={p.polygons ? "sim" : "nao"}
+      data-reference={p.reference ? "sim" : "nao"}
+    />
   ),
 }));
 vi.mock("./auth/google", () => ({ loadGoogleIdentity: () => new Promise(() => {}) }));
@@ -155,4 +160,44 @@ it("sair durante um upload cancela a requisição (a resposta não chega ao pró
   await user.click(screen.getByRole("button", { name: "Sair" }));
   await screen.findByRole("heading", { name: /Onde pode haver café/ });
   expect(upload?.signal?.aborted).toBe(true);
+});
+
+it("camada do MapBiomas só é baixada quando o usuário a liga na legenda", async () => {
+  signIn();
+  const withRef = makeAnalysis();
+  const sm = withRef.summary as NonNullable<typeof withRef.summary>;
+  sm.map.reference_overlay = true;
+  sm.reference = {
+    status: "ok",
+    source: "MapBiomas Coleção 11, cobertura e uso da terra (30 m)",
+    year: 2025,
+    license: "CC BY 4.0",
+    info_url: "https://brasil.mapbiomas.org/downloads/mapas-para-download-geotiff/",
+    citation: "Souza Jr. et al. (2020)",
+    note: "não acurácia",
+    compared_area_ha: 2620,
+    reference_coffee_ha: 43,
+    candidate_ha: 155.31,
+    intersection_ha: 7.28,
+    iou: 0.0381,
+    candidates_on_reference_coffee: 0.0469,
+    reference_coffee_in_candidates: 0.1693,
+    candidates_by_reference_class: { Pastagem: 0.3442 },
+    reference_coffee_by_our_class: {},
+  };
+  const { calls } = mockFetch({
+    "GET /analyses": () => json([{ ...withRef, summary: undefined }]),
+    [`GET /analyses/${withRef.id}`]: () => json(withRef),
+    [`GET /analyses/${withRef.id}/files/overlay-rgb`]: () => new Response(new Blob(["png"])),
+    [`GET /analyses/${withRef.id}/files/overlay-classes`]: () => new Response(new Blob(["png"])),
+    [`GET /analyses/${withRef.id}/files/overlay-reference`]: () => new Response(new Blob(["png"])),
+    [`GET /analyses/${withRef.id}/files/geojson`]: () => json({ type: "FeatureCollection", features: [] }),
+  });
+  renderWithProviders(<App />);
+  const toggle = await screen.findByRole("checkbox", { name: /Café no MapBiomas 2025/ });
+  const fetchedRef = () => calls.some((c) => c.url.endsWith("/files/overlay-reference"));
+  expect(fetchedRef()).toBe(false);
+  await userEvent.setup().click(toggle);
+  await waitFor(() => expect(screen.getByTestId("map")).toHaveAttribute("data-reference", "sim"));
+  expect(fetchedRef()).toBe(true);
 });

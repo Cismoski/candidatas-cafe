@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { Summary } from "../api/types";
 import { formatHa } from "../lib/format";
-import { CLASS_STYLES, rgbaCss } from "./classes";
+import { CLASS_STYLES, REFERENCE_RGBA, rgbaCss } from "./classes";
 import type { Layers } from "./MapView";
 
 interface Props {
@@ -50,6 +50,15 @@ export function Legend({ summary, layers, onToggle }: Props) {
           );
         })}
       </ul>
+
+      {summary.map.reference_overlay && summary.reference?.status === "ok" && (
+        <label className="legend__layer">
+          <input type="checkbox" checked={layers.reference} onChange={() => onToggle("reference")} />
+          <span className="legend__swatch" style={{ background: rgbaCss(REFERENCE_RGBA) }} aria-hidden />
+          <span className="legend__name">Café no MapBiomas {summary.reference.year} (referência)</span>
+          <span className="legend__value">{formatHa(summary.reference.reference_coffee_ha)}</span>
+        </label>
+      )}
 
       <label className="legend__layer">
         <input type="checkbox" checked={layers.rgb} onChange={() => onToggle("rgb")} />

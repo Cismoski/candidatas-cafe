@@ -147,3 +147,51 @@ it("abas: setas trocam a aba e movem o foco (padrão WAI-ARIA)", async () => {
   await userEvent.keyboard("{End}");
   expect(chat).toHaveFocus();
 });
+
+const REF_META = {
+  source: "MapBiomas Coleção 11, cobertura e uso da terra (30 m)",
+  year: 2025,
+  license: "CC BY 4.0",
+  info_url: "https://brasil.mapbiomas.org/downloads/mapas-para-download-geotiff/",
+  citation: "Souza Jr. et al. (2020)",
+  note: "não acurácia",
+};
+
+it("comparação com o MapBiomas: números, classes e a ressalva de que não é acurácia", () => {
+  const s = makeSummary();
+  s.reference = {
+    ...REF_META,
+    status: "ok",
+    compared_area_ha: 2620,
+    reference_coffee_ha: 43,
+    candidate_ha: 155.31,
+    intersection_ha: 7.28,
+    iou: 0.0381,
+    candidates_on_reference_coffee: 0.0469,
+    reference_coffee_in_candidates: 0.1693,
+    candidates_by_reference_class: { "Outras lavouras temporárias": 0.3658, Pastagem: 0.3442 },
+    reference_coffee_by_our_class: {},
+  };
+  show(makeAnalysis({ summary: s }));
+  const block = screen.getByRole("region", { name: "Comparação com o MapBiomas" });
+  expect(block).toHaveTextContent("43,00 ha de café");
+  expect(block).toHaveTextContent(/4,7\s?% das candidatas/);
+  expect(block).toHaveTextContent("IoU 0,04");
+  expect(block).toHaveTextContent(/Pastagem: 34,4\s?%/);
+  expect(block).toHaveTextContent("não acurácia");
+  expect(screen.getByRole("link", { name: /MapBiomas Coleção 11/ })).toHaveAttribute("href", REF_META.info_url);
+});
+
+it("MapBiomas indisponível: diz o motivo e que a análise não depende disso", () => {
+  const s = makeSummary();
+  s.reference = { ...REF_META, status: "unavailable", reason: "não foi possível ler o MapBiomas" };
+  show(makeAnalysis({ summary: s }));
+  expect(screen.getByText(/não foi possível ler o MapBiomas\. A análise não depende/)).toBeInTheDocument();
+});
+
+it("sem comparação configurada não mostra o bloco", () => {
+  const s = makeSummary();
+  s.reference = null;
+  show(makeAnalysis({ summary: s }));
+  expect(screen.queryByRole("region", { name: "Comparação com o MapBiomas" })).toBeNull();
+});

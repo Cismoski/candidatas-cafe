@@ -22,6 +22,9 @@ export const CLASS_STYLES: ClassStyle[] = [
   { key: "masked_quality", rgba: [120, 120, 120, 140] },
 ];
 
+/** Café do MapBiomas (REFERENCE_COLOR em render.py). */
+export const REFERENCE_RGBA: [number, number, number, number] = [150, 60, 190, 170];
+
 /** Contorno dos polígonos no PNG de download (OUTLINE em render.py). */
 export const OUTLINE_RGB: [number, number, number] = [255, 220, 0];
 

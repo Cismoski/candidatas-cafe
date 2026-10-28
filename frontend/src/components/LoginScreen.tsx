@@ -6,7 +6,7 @@ import { MapSheet } from "../map/MapSheet";
 import { ErrorNote } from "./ErrorNote";
 
 const MapView = lazy(() => import("../map/MapView").then((m) => ({ default: m.MapView })));
-const NO_LAYERS = { rgb: false, classes: false, polygons: false };
+const NO_LAYERS = { rgb: false, classes: false, polygons: false, reference: false };
 
 export function LoginScreen() {
   const { loginWithGoogle, endReason } = useAuth();

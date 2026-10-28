@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { CLASS_STYLES, OUTLINE_RGB } from "./classes";
+import { CLASS_STYLES, OUTLINE_RGB, REFERENCE_RGBA } from "./classes";
 
 /**
  * A sobreposição de classes é um PNG pintado no backend. Se as cores daqui
@@ -22,6 +22,11 @@ describe("cores da legenda = cores do PNG do backend", () => {
     const m = new RegExp(`LandClass\\.${BACKEND_NAME[key]}: \\(([^)]*)\\)`).exec(render);
     expect(m, `classe ${key} ausente em render.py`).not.toBeNull();
     expect((m as RegExpExecArray)[1]?.split(",").map((v) => Number(v.trim()))).toEqual(rgba);
+  });
+
+  it("café do MapBiomas", () => {
+    const m = /REFERENCE_COLOR = \(([^)]*)\)/.exec(render);
+    expect(m?.[1]?.split(",").map((v) => Number(v.trim()))).toEqual(REFERENCE_RGBA);
   });
 
   it("contorno", () => {

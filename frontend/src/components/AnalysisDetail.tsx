@@ -1,5 +1,5 @@
 import { type KeyboardEvent, useId, useMemo, useRef, useState } from "react";
-import type { Analysis, DownloadName, Summary } from "../api/types";
+import type { Analysis, DownloadName, Reference, Summary } from "../api/types";
 import { useDeleteAnalysis } from "../api/queries";
 import { useAuth } from "../auth/AuthProvider";
 import { saveBlob } from "../lib/files";
@@ -252,6 +252,8 @@ function Result({
         </dl>
       </details>
 
+      {summary.reference && <ReferenceBlock reference={summary.reference} />}
+
       <details className="block">
         <summary className="block__title">Limitações ({summary.limitations.length})</summary>
         <ul className="limits">
@@ -335,5 +337,56 @@ function DeleteAnalysis({ id, onDeleted }: { id: string; onDeleted: () => void }
       )}
       {del.error && <ErrorNote error={del.error} />}
     </footer>
+  );
+}
+
+/** Concordância com o MapBiomas: a única comparação externa disponível. Não é acurácia. */
+function ReferenceBlock({ reference: r }: { reference: Reference }) {
+  return (
+    <section className="block" aria-labelledby="ref-title">
+      <h3 id="ref-title" className="block__title">
+        Comparação com o MapBiomas
+      </h3>
+      {r.status === "ok" ? (
+        <>
+          <p>
+            O MapBiomas {r.year} mapeia {formatHa(r.reference_coffee_ha)} de café nesta área.
+            {r.candidates_on_reference_coffee != null && r.reference_coffee_in_candidates != null && (
+              <>
+                {" "}
+                {formatPct(r.candidates_on_reference_coffee)} das candidatas caem sobre esse café, e{" "}
+                {formatPct(r.reference_coffee_in_candidates)} do café do MapBiomas foi marcado como candidata
+                (IoU {formatIndex(r.iou)}).
+              </>
+            )}
+          </p>
+          {Object.keys(r.candidates_by_reference_class).length > 0 && (
+            <>
+              <p>Pelo MapBiomas, as candidatas são:</p>
+              <ul className="limits">
+                {Object.entries(r.candidates_by_reference_class).map(([name, share]) => (
+                  <li key={name}>
+                    {name}: {formatPct(share)}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          <p className="note__more">
+            É concordância entre dois mapas, não acurácia: o MapBiomas tem erros próprios e resolução de 30 m.
+            Ligue a camada na legenda do mapa para ver onde está o café dele.
+          </p>
+        </>
+      ) : (
+        <p className="note__more">{r.reason}. A análise não depende dessa comparação.</p>
+      )}
+      <p className="upload__fine">
+        Fonte:{" "}
+        <a href={r.info_url} target="_blank" rel="noreferrer">
+          {r.source}
+        </a>
+        , licença {r.license}. {r.citation}.
+      </p>
+    </section>
   );
 }

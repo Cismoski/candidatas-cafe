@@ -26,7 +26,7 @@ export function Workspace() {
   const [selectedId, setSelectedId] = useState<string | null>(readHash);
   const [uploading, setUploading] = useState(false);
   const [focusPolygon, setFocusPolygon] = useState<number | null>(null);
-  const [layers, setLayers] = useState<Layers>({ rgb: true, classes: false, polygons: true });
+  const [layers, setLayers] = useState<Layers>({ rgb: true, classes: false, polygons: true, reference: false });
   const [sheetOpen, setSheetOpen] = useState(true);
   const [view, setView] = useState<ViewBounds | null>(null);
 
@@ -70,6 +70,12 @@ export function Workspace() {
   const id = analysis?.id ?? "";
   const rgb = useAnalysisFile(id, "overlay-rgb", done);
   const classes = useAnalysisFile(id, "overlay-classes", done);
+  // só quando a camada for ligada: é opcional e quase sempre fica desligada
+  const reference = useAnalysisFile(
+    id,
+    "overlay-reference",
+    done && !!detail.data?.summary?.map.reference_overlay && layers.reference,
+  );
   const polygons = useQuery({
     queryKey: [...keys.file(id, "geojson"), "parsed"],
     queryFn: async ({ signal }) =>
@@ -165,6 +171,7 @@ export function Workspace() {
               coordinates={summary?.map.coordinates ?? null}
               rgb={rgb.data ?? null}
               classes={classes.data ?? null}
+              reference={reference.data ?? null}
               polygons={polygons.data ?? null}
               layers={layers}
               focusPolygon={focusPolygon}
