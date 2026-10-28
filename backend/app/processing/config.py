@@ -74,7 +74,7 @@ class Temporal(BaseModel):
     max_abs_ndvi_change: float = Field(gt=0, le=2)
     # Desconta do ΔNDVI a mediana do ΔNDVI da vegetação da cena (sazonalidade)
     seasonal_normalization: bool = True
-    normalization_min_pixels: int = Field(ge=1)
+    normalization_min_pixels: int = Field(default=1000, ge=1)
     cloud_blue_min: float = Field(gt=0)
     min_overlap: float = Field(ge=0, le=1)
 

@@ -428,7 +428,8 @@ def automatic_answer(question: str, summary: dict) -> str:
             return "Só uma data foi enviada, então a estabilidade temporal não foi verificada."
         shift = m.get("temporal_ndvi_shift")
         seasonal = (
-            f" A variação sazonal da vegetação da cena ({_num(shift, 3)} no NDVI) foi descontada antes."
+            f" Antes, foi descontada a variação sazonal da vegetação da cena: NDVI "
+            f"{'+' if shift >= 0 else '−'}{_num(abs(shift), 3)} entre as datas."
             if shift is not None
             else ""
         )

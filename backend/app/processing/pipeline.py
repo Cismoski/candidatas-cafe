@@ -24,7 +24,8 @@ from .reading import Scene, SceneError, read_scene, read_scene_on_grid, read_scl
 from .render import write_classes_geotiff, write_download_png, write_map_overlays
 from .vectorize import feature_collection, polygons_from_labels, to_wgs84
 
-SUMMARY_SCHEMA_VERSION = 1
+# 2: mode "temporal" -> "two_dates"; temporal_ndvi_shift/temporal_shift_pixels
+SUMMARY_SCHEMA_VERSION = 2
 
 LIMITATIONS = [
     "Resultado são ÁREAS CANDIDATAS, não uma classificação validada de café: "
@@ -43,10 +44,13 @@ LIMITATIONS = [
 # fechado" e a concordância entre as duas datas foi IoU 0,05. Na chuva o café
 # tem NDVI de mata e a regra "vigor intermediário" deixa de separá-lo.
 WET_MONTHS = {10, 11, 12, 1, 2, 3}
+# Só pelo mês (não pela posição): a configuração inteira é calibrada para o sul
+# de MG, e o texto diz isso em vez de afirmar algo sobre outras regiões.
 WET_SEASON_WARNING = (
-    "Imagem da estação chuvosa: o café atinge NDVI de mata e tende a cair em dossel "
-    "fechado. O método foi ajustado para a seca (jun-set); prefira uma imagem da seca "
-    "como principal e use esta como segunda data."
+    "Imagem de outubro a março, a estação chuvosa no sul de MG (região para a qual "
+    "os limiares foram ajustados): nessa época o café atinge NDVI de mata e tende a "
+    "cair em dossel fechado. Prefira uma imagem da seca (jun-set) como principal e "
+    "use esta como segunda data."
 )
 
 
@@ -54,6 +58,28 @@ def season_limitations(acquired_utc: str | None) -> list[str]:
     if not acquired_utc or len(acquired_utc) < 7 or not acquired_utc[5:7].isdigit():
         return []
     return [WET_SEASON_WARNING] if int(acquired_utc[5:7]) in WET_MONTHS else []
+
+
+def temporal_limitations(two_dates: bool, result, cfg) -> list[str]:
+    """O texto diz o que de fato foi feito: com ou sem desconto sazonal."""
+    if not two_dates:
+        return ["Sem segunda data: a estabilidade temporal não foi verificada."]
+    if result.temporal_ndvi_shift is not None:
+        return [
+            "Duas datas: a variação sazonal é descontada pela mediana da vegetação da "
+            "cena; mudança que atinja a maior parte da vegetação (ex.: seca regional) "
+            "também é descontada, e pasto que reverdece junto com o café não é separado."
+        ]
+    why = (
+        "desligado na configuração"
+        if not cfg.temporal.seasonal_normalization
+        else f"{result.temporal_shift_px} px de vegetação, abaixo do mínimo de "
+        f"{cfg.temporal.normalization_min_pixels}"
+    )
+    return [
+        f"Duas datas sem desconto sazonal ({why}): a variação de NDVI entre seca e "
+        "chuva pode rejeitar café por engano."
+    ]
 
 
 def _stats(values: npt.NDArray[np.float32]) -> dict | None:
@@ -285,15 +311,7 @@ def run_analysis(
         "limitations": LIMITATIONS
         + season_limitations(scene.acquired_utc)
         + ([] if scl_path else ["Sem SCL: nuvens e sombras não foram mascaradas explicitamente."])
-        + (
-            [
-                "Duas datas: a variação sazonal é descontada pela mediana da vegetação da "
-                "cena; mudança que atinja a maior parte da vegetação (ex.: seca regional) "
-                "também é descontada, e pasto que reverdece junto com o café não é separado."
-            ]
-            if other_scene
-            else ["Sem segunda data: a estabilidade temporal não foi verificada."]
-        ),
+        + temporal_limitations(other_scene is not None, result, cfg),
         "attribution": attribution,
     }
     (out_dir / "summary.json").write_text(

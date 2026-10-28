@@ -235,6 +235,33 @@ def test_shift_ignores_pixels_without_second_date_and_non_vegetation(cfg):
     assert res.temporal_ndvi_shift == pytest.approx(0.2, abs=1e-6)
 
 
+@pytest.mark.parametrize(
+    ("block_other", "kept"),
+    [
+        (0.5, True),  # Δ 0, Δ - desconto = -0,25: no limite (valores exatos em float32)
+        (float(np.nextafter(np.float32(0.5), 0)), False),
+    ],
+)
+def test_bva_normalized_change(cfg, block_other, kept):
+    ndvi = field(50, 50, value=0.5)
+    other = np.full_like(ndvi, 0.75)  # desconto +0,25
+    other[20:30, 20:30] = block_other
+    res = run(cfg, ndvi, other=other)
+    assert res.temporal_ndvi_shift == 0.25
+    assert (res.temporal_rejected_px == 0) is kept
+
+
+def test_change_of_most_vegetation_is_absorbed_by_the_shift(cfg):
+    """Limitação assumida (e escrita no summary): se a maior parte da vegetação muda
+    junto, a mediana absorve a mudança e nada é rejeitado."""
+    ndvi = field(50, 50, value=0.5)
+    other = np.full_like(ndvi, 0.9)
+    other[:, :20] = 0.5  # só 40% ficou igual
+    res = run(cfg, ndvi, other=other)
+    assert res.temporal_ndvi_shift == pytest.approx(0.4, abs=1e-6)
+    assert res.temporal_rejected_px == 50 * 20  # quem NÃO mudou é que sai
+
+
 @settings(max_examples=40, deadline=None)
 @given(st.floats(-0.04, 0.3))
 def test_property_uniform_seasonal_change_never_rejects(cfg, c):

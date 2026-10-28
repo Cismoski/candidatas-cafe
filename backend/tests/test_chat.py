@@ -316,6 +316,10 @@ def test_automatic_two_dates():
     s["inputs"]["secondary"] = {"acquired_utc": "2025-02-17T13:27:18Z"}
     a = chat.automatic_answer("e a segunda data?", s)
     assert "17/02/2025" in a and "3,50 ha" in a and "1,25 ha" in a
+    s["method"]["temporal_ndvi_shift"] = -0.034
+    assert "NDVI −0,034 entre as datas" in chat.automatic_answer("e a segunda data?", s)
+    s["method"]["temporal_ndvi_shift"] = 0.1457
+    assert "NDVI +0,146 entre as datas" in chat.automatic_answer("e a segunda data?", s)
 
 
 def test_no_polygons():

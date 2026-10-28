@@ -329,3 +329,33 @@ def test_wet_season_warning_bva(acquired, warns):
     from app.processing.pipeline import WET_SEASON_WARNING, season_limitations
 
     assert (WET_SEASON_WARNING in season_limitations(acquired)) is warns
+
+
+def test_two_date_limitation_states_whether_seasonal_shift_was_applied(cfg_copy):
+    from types import SimpleNamespace
+
+    from app.processing.pipeline import temporal_limitations
+
+    applied = temporal_limitations(
+        True, SimpleNamespace(temporal_ndvi_shift=0.1, temporal_shift_px=5000), cfg_copy
+    )
+    assert "é descontada" in applied[0]
+    few = temporal_limitations(
+        True, SimpleNamespace(temporal_ndvi_shift=None, temporal_shift_px=10), cfg_copy
+    )
+    assert "sem desconto sazonal (10 px" in few[0]
+    cfg_copy.temporal.seasonal_normalization = False
+    off = temporal_limitations(
+        True, SimpleNamespace(temporal_ndvi_shift=None, temporal_shift_px=0), cfg_copy
+    )
+    assert "desligado na configuração" in off[0]
+    assert "não foi verificada" in temporal_limitations(False, None, cfg_copy)[0]
+
+
+def test_old_config_without_normalization_min_pixels_still_loads(cfg):
+    from app.processing.config import ClassificationConfig
+
+    data = cfg.model_dump()
+    del data["temporal"]["normalization_min_pixels"]
+    del data["temporal"]["seasonal_normalization"]
+    assert ClassificationConfig.model_validate(data).temporal.normalization_min_pixels == 1000
