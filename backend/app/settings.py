@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.5-flash-lite"
     gemini_timeout_seconds: float = Field(default=15, gt=0, le=60)
     chat_messages_per_day: int = Field(default=30, ge=1)
+    # Chamadas simultâneas ao Gemini (cada uma prende uma thread por até o timeout)
+    chat_max_concurrent: int = Field(default=4, ge=1, le=16)
     # Circuit breaker do Gemini: N falhas seguidas abrem o circuito por N segundos
     chat_breaker_failures: int = Field(default=3, ge=1)
     chat_breaker_cooldown_seconds: int = Field(default=120, ge=1)

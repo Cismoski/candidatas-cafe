@@ -8,6 +8,7 @@ Services"); por isso o contexto é só numérico. Ver README > Assistente.
 """
 
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -15,7 +16,13 @@ log = logging.getLogger("globalwatch.llm")
 
 
 class LLMError(Exception):
-    """Falha ao obter resposta (rede, timeout, 429, 5xx, chave inválida, resposta vazia)."""
+    """Falha do serviço (rede, timeout, 429, 5xx, chave inválida): conta no circuit breaker."""
+
+
+class LLMSkipped(LLMError):
+    """Sem veredito sobre a saúde do serviço: todas as vagas ocupadas, ou resposta
+    vazia/bloqueada/cortada. NÃO conta no breaker: senão três perguntas que
+    disparam o filtro de segurança desligariam o Gemini para todos."""
 
 
 @dataclass(frozen=True)
@@ -29,12 +36,16 @@ class ChatModel(Protocol):
 
 
 class GeminiChat:
-    def __init__(self, api_key: str, model: str, timeout_s: float):
+    def __init__(self, api_key: str, model: str, timeout_s: float, max_concurrent: int = 4):
         from google import genai
         from google.genai import types
 
         self._types = types
         self.model = model
+        # A rota é síncrona: cada chamada prende uma thread do pool do anyio
+        # (40, compartilhadas com login, lista e downloads). Acima deste limite a
+        # pergunta vai para a resposta automática em vez de esperar.
+        self._slots = threading.BoundedSemaphore(max_concurrent)
         self._client = genai.Client(
             api_key=api_key,
             http_options=types.HttpOptions(
@@ -54,6 +65,8 @@ class GeminiChat:
             for h in history
         ]
         contents.append(t.Content(role="user", parts=[t.Part(text=message)]))
+        if not self._slots.acquire(blocking=False):
+            raise LLMSkipped("ocupado")
         try:
             resp = self._client.models.generate_content(
                 model=self.model,
@@ -70,8 +83,13 @@ class GeminiChat:
             code = getattr(e, "code", None)
             log.warning("falha no Gemini: %s %s", type(e).__name__, code or "")
             raise LLMError(type(e).__name__) from None
+        finally:
+            self._slots.release()
+        finish = resp.candidates[0].finish_reason if resp.candidates else None
+        if finish == t.FinishReason.MAX_TOKENS:
+            raise LLMSkipped("resposta cortada")  # frase pela metade não vai para o usuário
         text = (resp.text or "").strip()
         if not text:
-            # bloqueio de segurança, MAX_TOKENS sem texto etc.
-            raise LLMError("resposta vazia")
+            # prompt bloqueado (prompt_feedback), candidato filtrado etc.
+            raise LLMSkipped("resposta vazia")
         return text
