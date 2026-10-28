@@ -1,0 +1,23 @@
+PROCEDÊNCIA DOS DADOS
+
+Contains modified Copernicus Sentinel data (2025).
+Modificações pela preparação do desafio: recorte espacial e empilhamento das
+bandas B02, B03, B04 e B08; recorte da SCL sem mudança de resolução.
+Nenhuma classificação de café foi adicionada.
+
+Cena: S2B_T23KLS_20250816T132502_L2A.
+Aquisição: 2025-08-16T13:28:10.823Z.
+Catálogo: Earth Search, Element 84, sentinel-2-c1-l2a.
+Acessado em 19/10/2026:
+https://earth-search.aws.element84.com/v1/collections/sentinel-2-c1-l2a/items/S2B_T23KLS_20250816T132502_L2A
+
+Sentinel-2 Cloud-Optimized GeoTIFFs was accessed on 2026-10-19 from:
+https://registry.opendata.aws/sentinel-2-l2a-cogs/
+
+Termos de dados Sentinel indicados pela coleção de origem:
+https://sentinel.esa.int/documents/247904/690755/Sentinel_Data_Legal_Notice
+
+O aviso de atribuição e os termos de origem devem acompanhar os dados ao
+redistribuir este recorte. Não se atribui à Global Watch a autoria das imagens.
+As condições dos dados de origem são independentes da licença do código
+que o participante escolher para seu próprio repositório.
