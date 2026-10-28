@@ -86,6 +86,17 @@ def write_map_overlays(scene: Scene, classes: npt.NDArray[np.uint8], out_dir: Pa
     return {"coordinates": corners}
 
 
+# Café do MapBiomas: roxo, distinto do âmbar das candidatas, do azul da água e do verde da mata
+REFERENCE_COLOR = (150, 60, 190, 170)
+
+
+def write_reference_overlay(mask: npt.NDArray[np.bool_], grid: Grid, out_dir: Path) -> None:
+    rgba = np.zeros((*mask.shape, 4), dtype=np.uint8)
+    rgba[mask] = REFERENCE_COLOR
+    img, _ = _warp_to_mercator(rgba, grid)
+    Image.fromarray(img, "RGBA").save(out_dir / "overlay_referencia.png", optimize=True)
+
+
 def _font(size: int) -> ImageFont.ImageFont:
     try:
         return ImageFont.truetype("DejaVuSans.ttf", size)

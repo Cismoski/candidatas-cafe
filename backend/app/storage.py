@@ -20,6 +20,7 @@ DOWNLOADS: dict[str, tuple[str, str, bool]] = {
     "geotiff": ("classes.tif", "image/tiff", True),
     "overlay-rgb": ("overlay_rgb.png", "image/png", False),
     "overlay-classes": ("overlay_classes.png", "image/png", False),
+    "overlay-reference": ("overlay_referencia.png", "image/png", False),
 }
 
 

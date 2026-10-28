@@ -35,6 +35,7 @@ def make_settings(tmp_path: Path, **overrides) -> Settings:
         "cors_origins": "https://app.example.com",
         "job_isolation": False,
         "max_upload_mb": 5,
+        "mapbiomas_url": "",  # sem rede nos testes; a comparação tem testes próprios
     }
     return Settings(_env_file=None, **{**base, **overrides})
 

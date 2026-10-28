@@ -230,6 +230,7 @@ def create_app(
         app.state.cfg,
         isolate=settings.job_isolation,
         timeout_s=settings.job_timeout_seconds,
+        reference_url=settings.mapbiomas_url,
     )
     app.state.chat_model = default_chat_model(settings) if chat_model is _DEFAULT else chat_model
     app.state.breaker = CircuitBreaker(

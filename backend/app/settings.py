@@ -50,6 +50,13 @@ class Settings(BaseSettings):
     chat_breaker_failures: int = Field(default=3, ge=1)
     chat_breaker_cooldown_seconds: int = Field(default=120, ge=1)
 
+    # Referência independente: COG anual do MapBiomas ({year} é substituído).
+    # Vazio desliga a comparação. Lido no subprocesso da análise, com timeout.
+    mapbiomas_url: str = (
+        "https://storage.googleapis.com/mapbiomas-public/initiatives/brasil/collection11/"
+        "lulc/coverage/brazil_coverage/brazil_coverage-col11_{year}.tif"
+    )
+
     # Retenção
     retention_hours: int = Field(default=24, ge=1)
     retention_sweep_minutes: int = Field(default=15, ge=1)

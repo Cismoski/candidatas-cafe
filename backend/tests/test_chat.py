@@ -468,3 +468,43 @@ def test_summary_not_mutated():
 def test_parse_multi_thousands(text, value):
     """Regressão (achado pela Hypothesis): milhar com dois pontos derrubava o parser."""
     assert [v for n in chat.parse_numbers(text) for v in n.readings] == [value]
+
+
+REF = {
+    "status": "ok",
+    "source": "MapBiomas Coleção 11, cobertura e uso da terra (30 m)",
+    "year": 2025,
+    "note": "Concordância com outro mapa, não acurácia.",
+    "reference_coffee_ha": 43.0,
+    "candidate_ha": 155.31,
+    "iou": 0.0381,
+    "candidates_on_reference_coffee": 0.0469,
+    "reference_coffee_in_candidates": 0.1693,
+    "candidates_by_reference_class": {"Outras lavouras temporárias": 0.3658, "Pastagem": 0.3442},
+    "reference_coffee_by_our_class": {"Dossel fechado (mata/eucalipto)": 0.3651},
+}
+
+
+def test_reference_in_context_and_answers_use_only_its_numbers():
+    s = summary()
+    s["reference"] = REF
+    ctx = chat.build_context(s)
+    ref = ctx["referencia_mapbiomas"]
+    assert ref["candidatas_sobre_cafe_mapbiomas_percentual"] == 4.7
+    assert ref["candidatas_por_classe_mapbiomas_percentual"]["Pastagem"] == 34.4
+    allowed = chat.allowed_numbers(ctx)
+    for q in ("concorda com o MapBiomas?", "qual a acurácia?"):
+        a = chat.automatic_answer(q, s)
+        assert "43,00 ha" in a and "4,7%" in a and "não acurácia" in a, q
+        assert chat.unsupported_numbers(a, allowed) == [], q
+    # percentual aninhado é percentual; o mesmo número sem % não vira "permitido" por isso
+    assert chat.unsupported_numbers("Pastagem: 34,4% das candidatas", allowed) == []
+
+
+@pytest.mark.parametrize("ref", [None, {"status": "unavailable"}, {"status": "no_coverage"}])
+def test_reference_absent(ref):
+    s = summary()
+    s["reference"] = ref
+    assert "referencia_mapbiomas" not in chat.build_context(s)
+    assert "não está disponível" in chat.automatic_answer("e o MapBiomas?", s)
+    assert "concordância com o MapBiomas" not in chat.automatic_answer("qual a acurácia?", s)

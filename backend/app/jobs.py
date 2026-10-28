@@ -38,7 +38,14 @@ ERROR_FILE = "_erro.json"
 EXIT_SCENE_ERROR = 3
 
 
-def _child(primary: str, out_dir: str, cfg: dict, scl: str | None, secondary: str | None) -> None:
+def _child(
+    primary: str,
+    out_dir: str,
+    cfg: dict,
+    scl: str | None,
+    secondary: str | None,
+    reference_url: str | None = None,
+) -> None:
     """Ponto de entrada do subprocesso. Imports aqui: o pai não precisa carregá-los."""
     import sys
 
@@ -52,6 +59,7 @@ def _child(primary: str, out_dir: str, cfg: dict, scl: str | None, secondary: st
             ClassificationConfig.model_validate(cfg),
             scl_path=Path(scl) if scl else None,
             secondary_path=Path(secondary) if secondary else None,
+            reference_url=reference_url or None,
         )
     except SceneError as e:
         Path(out_dir).mkdir(parents=True, exist_ok=True)
@@ -113,8 +121,10 @@ class JobRunner:
         *,
         isolate: bool = True,
         timeout_s: int = 300,
+        reference_url: str = "",
     ):
         self.db, self.storage, self.cfg = db, storage, cfg
+        self.reference_url = reference_url
         self.isolate, self.timeout_s = isolate, timeout_s
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="analysis")
         self._lock = threading.Lock()
@@ -176,6 +186,7 @@ class JobRunner:
             self.cfg.model_dump(),
             _optional(inputs / INPUT_NAMES["scl"]),
             _optional(inputs / INPUT_NAMES["secondary"]),
+            self.reference_url,
         )
         t0 = time.perf_counter()
         if self.isolate:

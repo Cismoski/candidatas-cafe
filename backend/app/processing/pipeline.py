@@ -21,7 +21,13 @@ from . import indices
 from .classify import CLASS_LABELS_PT, Classification, LandClass, classify
 from .config import ClassificationConfig
 from .reading import Scene, SceneError, read_scene, read_scene_on_grid, read_scl_on_grid
-from .render import write_classes_geotiff, write_download_png, write_map_overlays
+from .reference import mapbiomas_reference
+from .render import (
+    write_classes_geotiff,
+    write_download_png,
+    write_map_overlays,
+    write_reference_overlay,
+)
 from .vectorize import feature_collection, polygons_from_labels, to_wgs84
 
 # 2: mode "temporal" -> "two_dates"; temporal_ndvi_shift/temporal_shift_pixels
@@ -143,6 +149,7 @@ def run_analysis(
     *,
     scl_path: Path | None = None,
     secondary_path: Path | None = None,
+    reference_url: str | None = None,
 ) -> dict:
     """Processa e grava os produtos; summary.json é escrito por último.
 
@@ -256,6 +263,15 @@ def run_analysis(
     )
     overlay = write_map_overlays(scene, result.classes, out_dir)
 
+    # Referência independente (MapBiomas): opcional, nunca derruba a análise
+    reference = None
+    if reference_url:
+        reference, ref_mask = mapbiomas_reference(
+            reference_url, scene.grid, result.classes, scene.acquired_utc
+        )
+        if ref_mask is not None:
+            write_reference_overlay(ref_mask, scene.grid, out_dir)
+
     summary = {
         "schema_version": SUMMARY_SCHEMA_VERSION,
         "generated_utc": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -307,7 +323,12 @@ def run_analysis(
             },
             "polygons": [props[i] for i in ids],
         },
-        "map": {"overlay_crs": "EPSG:3857", **overlay},
+        "map": {
+            "overlay_crs": "EPSG:3857",
+            "reference_overlay": bool(reference and reference["status"] == "ok"),
+            **overlay,
+        },
+        "reference": reference,
         "limitations": LIMITATIONS
         + season_limitations(scene.acquired_utc)
         + ([] if scl_path else ["Sem SCL: nuvens e sombras não foram mascaradas explicitamente."])
