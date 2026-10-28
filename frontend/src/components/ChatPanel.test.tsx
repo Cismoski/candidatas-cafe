@@ -1,0 +1,134 @@
+import { screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import type { ChatMessage } from "../api/types";
+import { json, mockFetch, renderWithProviders, signIn } from "../test/utils";
+import { ChatPanel } from "./ChatPanel";
+
+const ID = "11111111-1111-4111-8111-111111111111";
+const PATH = `/analyses/${ID}/chat`;
+
+const msg = (over: Partial<ChatMessage>): ChatMessage => ({
+  id: 1,
+  role: "assistant",
+  content: "",
+  source: "automatica",
+  notice: null,
+  created_at: "2026-10-28T20:00:00+00:00",
+  ...over,
+});
+const INTRO = msg({ id: 0, content: "Encontrei 90 polígonos candidatos somando 155,31 ha." });
+
+beforeEach(() => signIn());
+afterEach(() => vi.unstubAllGlobals());
+
+function show(onFocusPolygon = vi.fn()) {
+  renderWithProviders(<ChatPanel analysisId={ID} onFocusPolygon={onFocusPolygon} />);
+  return { onFocusPolygon, user: userEvent.setup() };
+}
+
+it("abre apresentando a classificação, com sugestões", async () => {
+  mockFetch({ [`GET ${PATH}`]: () => json({ messages: [INTRO], remaining_today: null }) });
+  show();
+  expect(await screen.findByText(/90 polígonos candidatos/)).toBeInTheDocument();
+  expect(screen.getByText("Resposta automática, sem IA")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Qual a acurácia?" })).toBeInTheDocument();
+});
+
+it("envia a pergunta, mostra 'respondendo' e a resposta com a origem", async () => {
+  let release: (r: Response) => void = () => {};
+  const { calls } = mockFetch({
+    [`GET ${PATH}`]: () => json({ messages: [INTRO], remaining_today: null }),
+    [`POST ${PATH}`]: () => new Promise<Response>((r) => (release = r)),
+  });
+  const { user } = show();
+  await user.type(await screen.findByLabelText("Pergunte sobre esta análise"), "qual o maior?{Enter}");
+  expect(await screen.findByText("Respondendo…")).toBeInTheDocument();
+  // a pergunta aparece no histórico enquanto a resposta não chega
+  expect(within(screen.getByRole("log")).getByText("qual o maior?")).toBeInTheDocument();
+  release(
+    json({
+      messages: [
+        msg({ id: 1, role: "user", content: "qual o maior?", source: null }),
+        msg({ id: 2, content: "O maior é o nº 76, com 8,33 ha.", source: "gemini" }),
+      ],
+      remaining_today: 29,
+    }),
+  );
+  expect(await screen.findByText("Gemini")).toBeInTheDocument();
+  expect(screen.getByText(/29 perguntas restantes hoje/)).toBeInTheDocument();
+  expect(screen.getByLabelText("Pergunte sobre esta análise")).toHaveValue("");
+  const post = calls.find((c) => c.method === "POST");
+  expect(JSON.parse(post?.body as string)).toEqual({ message: "qual o maior?" });
+  expect(post?.headers.get("Authorization")).toBe("Bearer tok-alice");
+});
+
+it("Shift+Enter quebra linha sem enviar; vazio não envia", async () => {
+  const { calls } = mockFetch({ [`GET ${PATH}`]: () => json({ messages: [INTRO], remaining_today: null }) });
+  const { user } = show();
+  const box = await screen.findByLabelText("Pergunte sobre esta análise");
+  await user.type(box, "   {Enter}");
+  await user.type(box, "linha{Shift>}{Enter}{/Shift}");
+  expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);
+  expect(box).toHaveValue("   linha\n");
+});
+
+it("o campo respeita o limite de 500 caracteres (BVA)", async () => {
+  mockFetch({ [`GET ${PATH}`]: () => json({ messages: [INTRO], remaining_today: null }) });
+  show();
+  const box = await screen.findByLabelText("Pergunte sobre esta análise");
+  expect(box).toHaveAttribute("maxlength", "500");
+  expect(screen.getByText(/^0\/500/)).toBeInTheDocument();
+});
+
+it("resposta automática mostra o aviso do motivo", async () => {
+  mockFetch({
+    [`GET ${PATH}`]: () =>
+      json({
+        messages: [
+          INTRO,
+          msg({ id: 2, content: "Não há acurácia a informar.", notice: "O assistente de IA está instável." }),
+        ],
+        remaining_today: null,
+      }),
+  });
+  show();
+  expect(await screen.findByText(/O assistente de IA está instável/)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Qual a acurácia?" })).not.toBeInTheDocument();
+});
+
+it("cota esgotada mostra a mensagem da API e mantém a conversa", async () => {
+  mockFetch({
+    [`GET ${PATH}`]: () => json({ messages: [INTRO], remaining_today: 0 }),
+    [`POST ${PATH}`]: () => json({ detail: "Limite de 30 perguntas por dia atingido." }, 429),
+  });
+  const { user } = show();
+  await user.click(await screen.findByRole("button", { name: "Qual é o maior polígono?" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("30 perguntas por dia");
+  expect(screen.getByText(/90 polígonos candidatos/)).toBeInTheDocument();
+});
+
+it("'nº 76' na resposta foca o polígono no mapa", async () => {
+  mockFetch({
+    [`GET ${PATH}`]: () => json({ messages: [msg({ content: "O maior é o nº 76 e depois o nº 3." })], remaining_today: null }),
+  });
+  const { onFocusPolygon, user } = show();
+  await user.click(await screen.findByRole("button", { name: "Mostrar polígono 76 no mapa" }));
+  expect(onFocusPolygon).toHaveBeenCalledWith(76);
+  await user.click(screen.getByRole("button", { name: "Mostrar polígono 3 no mapa" }));
+  expect(onFocusPolygon).toHaveBeenLastCalledWith(3);
+});
+
+it("conteúdo do modelo é texto, nunca HTML", async () => {
+  mockFetch({
+    [`GET ${PATH}`]: () => json({ messages: [msg({ content: '<img src=x onerror="alert(1)">' })], remaining_today: null }),
+  });
+  show();
+  expect(await screen.findByText('<img src=x onerror="alert(1)">')).toBeInTheDocument();
+  expect(document.querySelector("img")).toBeNull();
+});
+
+it("análise não concluída (409) explica", async () => {
+  mockFetch({ [`GET ${PATH}`]: () => json({ detail: "O assistente fica disponível quando a análise terminar." }, 409) });
+  show();
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("quando a análise terminar"));
+});

@@ -114,3 +114,18 @@ export interface Summary {
 }
 
 export type DownloadName = "geojson" | "png" | "geotiff" | "overlay-rgb" | "overlay-classes";
+
+export interface ChatMessage {
+  id: number;
+  role: "user" | "assistant";
+  content: string;
+  /** "gemini" = modelo de linguagem; "automatica" = resposta por regras, sem IA. */
+  source: "gemini" | "automatica" | null;
+  notice: string | null;
+  created_at: string;
+}
+
+export interface ChatOut {
+  messages: ChatMessage[];
+  remaining_today: number | null;
+}

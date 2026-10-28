@@ -6,6 +6,7 @@ import { saveBlob } from "../lib/files";
 import { formatExpiry, formatHa, formatIndex, formatInt, formatPct } from "../lib/format";
 import { useNow } from "../lib/useNow";
 import { STATUS_LABEL } from "./AnalysisList";
+import { ChatPanel } from "./ChatPanel";
 import { ErrorNote } from "./ErrorNote";
 
 interface Props {
@@ -61,10 +62,7 @@ export function AnalysisDetail({ analysis, focusPolygon, onFocusPolygon, onDelet
             </div>
           ) : (
             <div className="detail__body" role="tabpanel" id="panel-chat" aria-labelledby="tab-chat">
-              <p className="note">
-                O assistente vai apresentar esta classificação e responder perguntas usando apenas os números
-                deste processamento. Disponível na próxima versão.
-              </p>
+              <ChatPanel analysisId={analysis.id} onFocusPolygon={onFocusPolygon} />
             </div>
           )}
         </>

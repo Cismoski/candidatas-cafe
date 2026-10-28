@@ -1,4 +1,4 @@
-import type { Analysis, AnalysisItem, DownloadName, Session } from "./types";
+import type { Analysis, AnalysisItem, ChatOut, DownloadName, Session } from "./types";
 
 /**
  * Cliente HTTP da API.
@@ -155,6 +155,18 @@ export class ApiClient {
 
   async deleteAnalysis(id: string): Promise<void> {
     await this.raw(`/analyses/${encodeURIComponent(id)}`, { method: "DELETE" });
+  }
+
+  getChat(id: string, signal?: AbortSignal): Promise<ChatOut> {
+    return this.json(`/analyses/${encodeURIComponent(id)}/chat`, { signal });
+  }
+
+  ask(id: string, message: string): Promise<ChatOut> {
+    return this.json(`/analyses/${encodeURIComponent(id)}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message }),
+    });
   }
 
   async file(id: string, name: DownloadName, signal?: AbortSignal): Promise<Blob> {

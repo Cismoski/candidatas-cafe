@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthProvider";
 import { ApiError } from "./client";
-import type { Analysis, AnalysisItem, AnalysisStatus, DownloadName } from "./types";
+import type { Analysis, AnalysisItem, AnalysisStatus, ChatOut, DownloadName } from "./types";
 
 export const POLL_MS = 2500;
 
@@ -17,6 +17,7 @@ export const keys = {
   list: ["analyses"] as const,
   one: (id: string) => ["analyses", id] as const,
   file: (id: string, name: DownloadName) => ["analyses", id, "file", name] as const,
+  chat: (id: string) => ["analyses", id, "chat"] as const,
 };
 
 export function useAnalyses() {
@@ -102,5 +103,30 @@ export function useAnalysisFile(id: string, name: DownloadName, enabled: boolean
     staleTime: Number.POSITIVE_INFINITY, // produtos de uma análise concluída não mudam
     gcTime: 5 * 60_000,
     retry: shouldRetry,
+  });
+}
+
+export function useChat(id: string) {
+  const { api } = useAuth();
+  return useQuery({
+    queryKey: keys.chat(id),
+    queryFn: ({ signal }) => api.getChat(id, signal),
+    staleTime: Number.POSITIVE_INFINITY, // só muda quando o próprio usuário pergunta
+    retry: shouldRetry,
+  });
+}
+
+export function useAsk(id: string) {
+  const { api } = useAuth();
+  const qc = useQueryClient();
+  return useMutation({
+    retry: false, // cada pergunta gasta cota; nunca repetir sozinho
+    mutationFn: (message: string) => api.ask(id, message),
+    onSuccess: (out: ChatOut) => {
+      qc.setQueryData<ChatOut>(keys.chat(id), (prev) => ({
+        messages: [...(prev?.messages ?? []), ...out.messages],
+        remaining_today: out.remaining_today,
+      }));
+    },
   });
 }
