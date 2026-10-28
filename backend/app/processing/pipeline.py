@@ -20,7 +20,7 @@ from scipy import ndimage
 from . import indices
 from .classify import CLASS_LABELS_PT, Classification, LandClass, classify
 from .config import ClassificationConfig
-from .reading import Scene, read_scene, read_scene_on_grid, read_scl_on_grid
+from .reading import Scene, SceneError, read_scene, read_scene_on_grid, read_scl_on_grid
 from .render import write_classes_geotiff, write_download_png, write_map_overlays
 from .vectorize import feature_collection, polygons_from_labels, to_wgs84
 
@@ -67,6 +67,19 @@ def _per_label_mean(
     }
 
 
+def _overlap(
+    covered: npt.NDArray[np.bool_], valid: npt.NDArray[np.bool_], n_valid: int, what: str, cfg
+) -> float:
+    """Fração dos pixels válidos da cena principal cobertos pelo raster auxiliar."""
+    frac = float((covered & valid).sum() / n_valid) if n_valid else 0.0
+    if frac < cfg.temporal.min_overlap:
+        raise SceneError(
+            f"{what} cobre só {frac:.0%} da imagem principal "
+            f"(mínimo {cfg.temporal.min_overlap:.0%}); confira se é a mesma área"
+        )
+    return round(frac, 4)
+
+
 def _scene_info(scene: Scene) -> dict:
     g = scene.grid
     return {
@@ -75,7 +88,7 @@ def _scene_info(scene: Scene) -> dict:
         "crs": g.crs.to_string(),
         "width": g.width,
         "height": g.height,
-        "pixel_size_m": round(abs(g.transform.a), 3),
+        "pixel_size_m": [round(abs(g.transform.a), 3), round(abs(g.transform.e), 3)],
         "radiometry": scene.radiometry_source,
     }
 
@@ -87,28 +100,39 @@ def run_analysis(
     *,
     scl_path: Path | None = None,
     secondary_path: Path | None = None,
-    acquired_utc_override: str | None = None,
 ) -> dict:
+    """Processa e grava os produtos; summary.json é escrito por último.
+
+    Atomicidade (nunca expor saída pela metade) é responsabilidade de quem
+    chama: o job da API escreve num diretório temporário e o renomeia.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     scene = read_scene(primary_path, cfg)
-    if acquired_utc_override and not scene.acquired_utc:
-        scene.acquired_utc = acquired_utc_override
     grid = scene.grid
+    n_valid = int(scene.valid.sum())
 
     ndvi = indices.ndvi(scene.nir, scene.red)
     ndwi = indices.ndwi(scene.green, scene.nir)
     savi = indices.savi(scene.nir, scene.red, cfg.indices.savi_l)
     texture = indices.local_std(ndvi, cfg.indices.texture_window)
 
+    coverage: dict[str, float] = {}
     quality_ok = None
     if scl_path is not None:
         scl = read_scl_on_grid(scl_path, grid)
+        coverage["scl"] = _overlap(scl != 0, scene.valid, n_valid, "a SCL", cfg)
         quality_ok = np.isin(scl, cfg.scl.keep_classes)
 
     other_scene, other_ndvi = None, None
     if secondary_path is not None:
         other_scene = read_scene_on_grid(secondary_path, grid, cfg)
+        # Sem SCL da segunda data: nuvem densa é brilhante no azul -> NoData.
+        other_scene.valid &= other_scene.blue < np.float32(cfg.temporal.cloud_blue_min)
+        coverage["secondary"] = _overlap(
+            other_scene.valid, scene.valid, n_valid, "a segunda data (sem nuvem)", cfg
+        )
         other_ndvi = indices.ndvi(other_scene.nir, other_scene.red)
+        other_ndvi[~other_scene.valid] = np.nan
 
     result: Classification = classify(
         ndvi=ndvi,
@@ -120,7 +144,7 @@ def run_analysis(
         cfg=cfg,
     )
 
-    polygons = polygons_from_labels(result.labels, grid, cfg.vector.simplify_tolerance_m)
+    polygons = polygons_from_labels(result.labels, grid)
     ids = [p.id for p in polygons]
     means = {
         "ndvi_mean": _per_label_mean(ndvi, result.labels, ids),
@@ -133,13 +157,15 @@ def run_analysis(
 
     props: dict[int, dict] = {}
     for p in polygons:
-        c = to_wgs84(p.geometry_projected.centroid, grid)
+        # representative_point: sempre dentro do polígono (o centroide de um
+        # talhão em "C" pode cair fora dele)
+        c = to_wgs84(p.geometry.representative_point(), grid)
         props[p.id] = {
             "id": p.id,
             "area_ha": round(p.area_ha, 4),
             **{k: v[p.id] for k, v in means.items()},
-            "centroid_lon": round(c.x, 6),
-            "centroid_lat": round(c.y, 6),
+            "point_lon": round(c.x, 6),
+            "point_lat": round(c.y, 6),
             "classe": "candidata_cafe",
         }
 
@@ -153,7 +179,10 @@ def run_analysis(
         for c in LandClass
     }
     total_ha = sum(p.area_ha for p in polygons)
-    analysed_ha = float((result.classes != LandClass.NODATA).sum() * pixel_ha)
+    # "Analisada" = com dado e aprovada pela máscara de qualidade
+    analysed_ha = float(
+        (~np.isin(result.classes, [LandClass.NODATA, LandClass.MASKED_QUALITY])).sum() * pixel_ha
+    )
     candidate = result.classes == LandClass.CANDIDATE
     land = np.isin(
         result.classes,
@@ -165,8 +194,8 @@ def run_analysis(
         ],
     )
 
-    year = (scene.acquired_utc or "")[:4] or str(datetime.now(UTC).year)
-    attribution = f"Contains modified Copernicus Sentinel data ({year})"
+    year = (scene.acquired_utc or "")[:4]
+    attribution = "Contains modified Copernicus Sentinel data" + (f" ({year})" if year else "")
     mode = "temporal" if other_scene is not None else "single_date"
     date_label = (scene.acquired_utc or "data desconhecida")[:10]
 
@@ -204,6 +233,9 @@ def run_analysis(
             "parameters": cfg.model_dump(),
             "dense_canopy_ndvi_threshold": round(result.dense_threshold, 4),
             "dense_canopy_threshold_source": result.dense_threshold_source,
+            "otsu_separability": None
+            if result.otsu_separability is None
+            else round(result.otsu_separability, 3),
         },
         "results": {
             "candidate_polygons": len(polygons),
@@ -213,6 +245,8 @@ def run_analysis(
             if analysed_ha
             else 0,
             "temporal_unverified_ha": round(result.temporal_unverified_px * pixel_ha, 4),
+            "temporal_rejected_ha": round(result.temporal_rejected_px * pixel_ha, 4),
+            "input_coverage": coverage,
             "class_areas": class_areas,
             "index_stats": {
                 name: {"analysed_land": _stats(arr[land]), "candidates": _stats(arr[candidate])}

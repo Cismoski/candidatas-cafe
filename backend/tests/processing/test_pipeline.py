@@ -52,7 +52,7 @@ def test_nodata_excluded_from_valid(synthetic, cfg):
 @pytest.mark.parametrize(
     ("kwargs", "dn", "msg"),
     [
-        ({"crs": "EPSG:4326", "res": 0.0001, "origin": (-46.7, -21.3)}, None, "não é projetado"),
+        ({"crs": "EPSG:4326", "res": 0.0001, "origin": (-46.7, -21.3)}, None, "não é UTM"),
         ({"crs": None}, None, "CRS"),
         ({}, make_scene(4, 4)[:3], "4 bandas"),
         ({}, make_scene(4, 4).astype(np.float32), "inteiro"),
@@ -207,3 +207,106 @@ def test_pipeline_no_candidates_still_writes_products(tmp_path, cfg):
     assert s["results"]["index_stats"]["ndvi"]["candidates"] is None
     fc = json.loads((tmp_path / "o" / "candidatas.geojson").read_text())
     assert fc == {"type": "FeatureCollection", "features": []}
+
+
+# --- itens da revisão da fase 1 -------------------------------------------------
+def test_geometries_valid_with_diagonal_touching_blocks(tmp_path, cfg):
+    """Com connectivity=8 na vetorização, blocos que se tocam na quina geravam anel inválido."""
+    dn = make_scene(50, 50)
+    paint(dn, slice(5, 15), slice(5, 15), **COFFEE)
+    paint(dn, slice(15, 25), slice(15, 25), **COFFEE)
+    paint(dn, slice(25, 35), slice(5, 15), **COFFEE)  # toca o segundo bloco pela quina
+    s = run_analysis(write_stack(tmp_path / "d.tif", dn), tmp_path / "o", cfg)
+    fc = json.loads((tmp_path / "o" / "candidatas.geojson").read_text())
+    assert s["results"]["candidate_polygons"] == 1
+    assert all(shape(f["geometry"]).is_valid for f in fc["features"])
+    for p in s["results"]["polygons"]:  # ponto representativo dentro do polígono
+        geom = shape(fc["features"][0]["geometry"])
+        from shapely.geometry import Point
+
+        assert geom.buffer(1e-9).contains(Point(p["point_lon"], p["point_lat"]))
+
+
+def test_overlay_corners_match_transformed_bounds(tmp_path, synthetic, cfg):
+    s = run_analysis(synthetic, tmp_path / "o", cfg)
+    to_ll = Transformer.from_crs("EPSG:32723", "EPSG:4326", always_xy=True)
+    left, top = ORIGIN
+    right, bottom = left + 600, top - 600
+    expected = [  # TL, TR, BR, BL
+        to_ll.transform(left, top),
+        to_ll.transform(right, top),
+        to_ll.transform(right, bottom),
+        to_ll.transform(left, bottom),
+    ]
+    for got, exp in zip(s["map"]["coordinates"], expected, strict=True):
+        # a grade em 3857 envolve a da UTM: tolerância de ~1 pixel
+        assert got == pytest.approx(exp, abs=1.5e-4)
+
+
+def test_secondary_without_overlap_is_rejected(tmp_path, synthetic, cfg):
+    far = write_stack(tmp_path / "far.tif", make_scene(60, 60), origin=(400000.0, 7600000.0))
+    with pytest.raises(SceneError, match="segunda data"):
+        run_analysis(synthetic, tmp_path / "o", cfg, secondary_path=far)
+
+
+def test_scl_without_overlap_is_rejected(tmp_path, synthetic, cfg):
+    with rasterio.open(
+        tmp_path / "scl.tif",
+        "w",
+        driver="GTiff",
+        dtype="uint8",
+        count=1,
+        height=10,
+        width=10,
+        crs="EPSG:32723",
+        transform=from_origin(400000.0, 7600000.0, 20, 20),
+        nodata=0,
+    ) as ds:
+        ds.write(np.full((1, 10, 10), 4, np.uint8))
+    with pytest.raises(SceneError, match="SCL"):
+        run_analysis(synthetic, tmp_path / "o", cfg, scl_path=tmp_path / "scl.tif")
+
+
+def test_cloud_in_secondary_is_nodata_not_rejection(tmp_path, synthetic, cfg):
+    """Nuvem na 2ª data (azul alto, NDVI baixo) não pode apagar o candidato."""
+    dn2 = make_scene(60, 60)
+    paint(dn2, slice(0, 60), slice(0, 60), **COFFEE)
+    paint(dn2, slice(40, 50), slice(40, 50), blue=0.35, green=0.35, red=0.35, nir=0.38)
+    s = run_analysis(
+        synthetic, tmp_path / "o", cfg, secondary_path=write_stack(tmp_path / "w.tif", dn2)
+    )
+    assert s["results"]["candidate_polygons"] == 1
+    assert s["results"]["temporal_unverified_ha"] == pytest.approx(1.0)
+    assert s["results"]["temporal_rejected_ha"] == 0
+
+
+def test_rerun_into_same_dir_overwrites_consistently(tmp_path, synthetic, cfg):
+    out = tmp_path / "o"
+    first = run_analysis(synthetic, out, cfg)
+    second = run_analysis(write_stack(tmp_path / "bare.tif", make_scene(60, 60)), out, cfg)
+    assert first["results"]["candidate_polygons"] == 1
+    assert second["results"]["candidate_polygons"] == 0
+    assert json.loads((out / "candidatas.geojson").read_text())["features"] == []
+
+
+def test_masked_pixels_are_not_counted_as_analysed(tmp_path, synthetic, cfg):
+    scl = np.full((30, 30), 4, np.uint8)
+    scl[:15, :] = 9  # metade norte: nuvem
+    with rasterio.open(
+        tmp_path / "scl.tif",
+        "w",
+        driver="GTiff",
+        dtype="uint8",
+        count=1,
+        height=30,
+        width=30,
+        crs="EPSG:32723",
+        transform=from_origin(*ORIGIN, 20, 20),
+        nodata=0,
+    ) as ds:
+        ds.write(scl, 1)
+    s = run_analysis(synthetic, tmp_path / "o", cfg, scl_path=tmp_path / "scl.tif")
+    r = s["results"]
+    assert r["class_areas"]["masked_quality"]["area_ha"] == pytest.approx(18.0)
+    assert r["analysed_area_ha"] == pytest.approx((3600 - 25) * 0.01 - 18.0)
+    assert r["input_coverage"]["scl"] == 1.0

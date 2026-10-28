@@ -18,10 +18,11 @@ bands:
   nir: 4
 
 scl:
-  # Classes SCL mantidas. 4 = vegetação. Excluídas, entre outras:
-  # 0 nodata, 1 saturado, 2 sombra/escuro, 3 sombra de nuvem, 5 não vegetado,
-  # 6 água, 7 não classificado, 8-10 nuvem/cirrus, 11 neve.
-  keep_classes: [4]
+  # A SCL é usada como máscara de QUALIDADE, não de cobertura do solo:
+  # mantidas 4 vegetação, 5 não vegetado, 6 água, 7 não classificado (a
+  # cobertura é decidida pelos índices). Excluídas: 0 sem dado, 1 saturado,
+  # 2 sombra/escuro, 3 sombra de nuvem, 8-9 nuvem, 10 cirrus, 11 neve.
+  keep_classes: [4, 5, 6, 7]
 
 indices:
   savi_l: 0.5          # Huete (1988): L = 0.5 para coberturas intermediárias
@@ -38,6 +39,10 @@ rules:
   dense_ndvi_default: 0.72
   dense_ndvi_floor: 0.65
   dense_ndvi_ceiling: 0.80
+  # Separabilidade mínima do Otsu (eta = var_entre/var_total). Uma gaussiana
+  # única dá ~0,64; abaixo de 0,70 o histograma não tem duas populações claras
+  # e o limiar padrão é usado.
+  otsu_min_separability: 0.70
   # Água/umidade: NDWI (McFeeters) acima disso é excluído.
   ndwi_max: 0.0
   # Manchas de dossel fechado com área >= dense_core_min_area_ha são tratadas
@@ -50,13 +55,13 @@ temporal:
   # Só aplicado quando uma segunda data é enviada.
   # Café é perene: precisa continuar vegetado na outra data...
   ndvi_min_other: 0.45
-  # ...e não pode virar dossel fechado nem variar demais (cultura anual/pasto).
+  # ...e não pode variar demais (cultura anual, pastagem, desmatamento).
   max_abs_ndvi_change: 0.25
+  # Na segunda data (sem SCL), azul acima disso é tratado como nuvem (NoData).
+  cloud_blue_min: 0.20
+  # Fração mínima da cena principal coberta pela segunda data / pela SCL.
+  min_overlap: 0.5
 
 morphology:
   opening_iterations: 1    # remove pixels isolados e pontes de 1 px
-  closing_iterations: 1    # fecha falhas de 1 px dentro do talhão
   min_area_ha: 0.5         # = 50 pixels de 10 m
-
-vector:
-  simplify_tolerance_m: 5  # metade do pixel: tira o serrilhado sem deslocar bordas

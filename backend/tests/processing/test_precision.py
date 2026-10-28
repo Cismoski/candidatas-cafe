@@ -66,7 +66,8 @@ def brute_otsu(values, lo, hi, bins=256):
 
 def test_otsu_plateau_takes_midpoint():
     v = np.array([0.5] * 100 + [0.9] * 100, np.float32)
-    assert otsu_threshold(v, 0.45, 1.0) == pytest.approx(0.7, abs=0.01)
+    t, eta = otsu_threshold(v, 0.45, 1.0)
+    assert t == pytest.approx(0.7, abs=0.01) and eta == pytest.approx(1.0)
 
 
 @pytest.mark.parametrize("seed", range(5))
@@ -76,7 +77,7 @@ def test_otsu_matches_brute_force(seed):
         np.float32
     )
     v = v[(v >= 0.45) & (v <= 1)]
-    assert otsu_threshold(v, 0.45, 1.0) == pytest.approx(brute_otsu(v, 0.45, 1.0))
+    assert otsu_threshold(v, 0.45, 1.0)[0] == pytest.approx(brute_otsu(v, 0.45, 1.0))
 
 
 def test_dense_threshold_ignores_non_vegetated_and_low_pixels(cfg):
@@ -90,8 +91,8 @@ def test_dense_threshold_ignores_non_vegetated_and_low_pixels(cfg):
     mask = np.concatenate(
         [np.ones(veg.size, bool), np.zeros(noise.size, bool), np.ones(low.size, bool)]
     )
-    t, _ = dense_canopy_threshold(v, mask, cfg)
-    assert t == pytest.approx(otsu_threshold(veg, cfg.rules.ndvi_min, 1.0))
+    t, _, _ = dense_canopy_threshold(v, mask, cfg)
+    assert t == pytest.approx(otsu_threshold(veg, cfg.rules.ndvi_min, 1.0)[0])
 
 
 @pytest.mark.parametrize(("n", "uses_otsu"), [(499, False), (500, True)])
@@ -100,7 +101,7 @@ def test_bva_min_pixels_for_otsu(cfg, n, uses_otsu):
     v = np.concatenate([rng.normal(0.55, 0.01, n // 2), rng.normal(0.85, 0.01, n - n // 2)]).astype(
         np.float32
     )
-    _, src = dense_canopy_threshold(v, np.ones(n, bool), cfg)
+    _, src, _ = dense_canopy_threshold(v, np.ones(n, bool), cfg)
     assert src.startswith("Otsu") is uses_otsu
 
 
@@ -129,7 +130,6 @@ def test_buffer_width(cfg_copy, buffer_px, cols):
 
 def test_buffer_uses_diagonal_neighbourhood(cfg_copy):
     cfg_copy.morphology.opening_iterations = 0
-    cfg_copy.morphology.closing_iterations = 0
     ndvi = np.full((40, 40), 0.3, np.float32)
     ndvi[0:10, 0:10] = 0.86  # núcleo 1 ha
     ndvi[10:20, 10:20] = 0.58  # toca o núcleo só pela diagonal em (10, 10)
@@ -149,7 +149,6 @@ def test_buffer_uses_diagonal_neighbourhood(cfg_copy):
 @pytest.mark.parametrize("iterations", [1, 2])
 def test_opening_iterations_remove_thin_strips(cfg_copy, iterations):
     cfg_copy.morphology.opening_iterations = iterations
-    cfg_copy.morphology.closing_iterations = 0
     cfg_copy.morphology.min_area_ha = 0
     ndvi = np.full((30, 30), 0.3, np.float32)
     ndvi[5:25, 5:9] = 0.58  # faixa de 4 px: sobrevive a 1 abertura, não a 2 (precisa de 5)
@@ -167,7 +166,6 @@ def test_opening_iterations_remove_thin_strips(cfg_copy, iterations):
 
 def test_zero_min_area_keeps_single_pixel(cfg_copy):
     cfg_copy.morphology.opening_iterations = 0
-    cfg_copy.morphology.closing_iterations = 0
     cfg_copy.morphology.min_area_ha = 0
     ndvi = np.full((10, 10), 0.3, np.float32)
     ndvi[5, 5] = 0.58
@@ -184,10 +182,11 @@ def test_zero_min_area_keeps_single_pixel(cfg_copy):
 
 
 # --- temporal: limites e contagem ------------------------------------------------
-def test_temporal_other_at_dense_threshold_is_rejected(cfg_copy):
-    cfg_copy.temporal.max_abs_ndvi_change = 1.0
+def test_rejected_pixel_is_not_resurrected_by_morphology(cfg):
+    """Revisão: o fechamento recolocava pixels rejeitados pela regra temporal."""
     ndvi = np.full((20, 20), 0.5, np.float32)
-    other = np.full_like(ndvi, np.float32(cfg_copy.rules.dense_ndvi_default))
+    other = np.full_like(ndvi, 0.5)
+    other[10, 10] = 0.1  # um pixel que virou solo na outra data
     res = classify(
         ndvi=ndvi,
         ndwi=np.full_like(ndvi, -0.5),
@@ -195,9 +194,10 @@ def test_temporal_other_at_dense_threshold_is_rejected(cfg_copy):
         quality_ok=None,
         other_ndvi=other,
         pixel_area_m2=100.0,
-        cfg=cfg_copy,
+        cfg=cfg,
     )
-    assert res.n_components == 0
+    assert res.classes[10, 10] == LandClass.DISCARDED
+    assert res.temporal_rejected_px == 1
 
 
 def test_temporal_keeps_buffer_and_counts_only_candidate_gaps(cfg):
@@ -221,9 +221,40 @@ def test_temporal_keeps_buffer_and_counts_only_candidate_gaps(cfg):
 
 
 # --- leitura: CRS, bandas e alinhamento exato -------------------------------------
-def test_projected_crs_in_feet_rejected(tmp_path, cfg):
-    p = write_stack(tmp_path / "ft.tif", make_scene(4, 4), crs="EPSG:2263", origin=(1e6, 2e5))
-    with pytest.raises(SceneError, match="metros"):
+@pytest.mark.parametrize(
+    ("crs", "origin"),
+    [
+        ("EPSG:2263", (1e6, 2e5)),  # projetado em pés
+        ("EPSG:3857", (-5199000.0, -2431000.0)),  # metros, mas área distorcida ~15%
+        ("EPSG:5880", (5e6, 7e6)),  # Policônica SIRGAS: metros, não UTM
+    ],
+)
+def test_non_utm_crs_rejected(tmp_path, cfg, crs, origin):
+    p = write_stack(tmp_path / "x.tif", make_scene(4, 4), crs=crs, origin=origin)
+    with pytest.raises(SceneError, match="não é UTM"):
+        read_scene(p, cfg)
+
+
+def test_sirgas_utm_accepted(tmp_path, cfg):
+    p = write_stack(tmp_path / "s.tif", make_scene(4, 4), crs="EPSG:31983")
+    assert read_scene(p, cfg).grid.crs.to_epsg() == 31983
+
+
+def test_south_up_rejected(tmp_path, cfg):
+    p = tmp_path / "su.tif"
+    with rasterio.open(
+        p,
+        "w",
+        driver="GTiff",
+        dtype="uint16",
+        count=4,
+        height=4,
+        width=4,
+        crs="EPSG:32723",
+        transform=rasterio.transform.Affine(10, 0, 323200, 0, 10, 7642980),
+    ) as ds:
+        ds.write(make_scene(4, 4))
+    with pytest.raises(SceneError, match="sul-acima"):
         read_scene(p, cfg)
 
 

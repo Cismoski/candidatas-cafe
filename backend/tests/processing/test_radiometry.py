@@ -13,8 +13,8 @@ S, O = 0.0001, -0.1  # noqa: E741 (scale, offset)
 @pytest.mark.parametrize(
     ("dn", "expected"),
     [
-        (1, -0.0999),  # menor DN válido (logo acima do NoData)
-        (999, -0.0001),
+        (1, 0.0),  # menor DN válido: -0.0999 recortado para 0
+        (999, 0.0),  # -0.0001 recortado
         (1000, 0.0),  # zero de reflectância
         (1001, 0.0001),
         (3000, 0.2),
@@ -45,7 +45,8 @@ def test_property_affine_and_nan_iff_nodata(dn):
     out = dn_to_reflectance(dn, S, O, nodata_dn=0)
     nod = dn == 0
     assert np.array_equal(np.isnan(out), nod)
-    np.testing.assert_allclose(out[~nod], dn[~nod] * S + O, rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(out[~nod], np.maximum(dn[~nod] * S + O, 0), rtol=1e-6, atol=1e-6)
+    assert np.all(out[~nod] >= 0)
 
 
 # --- branches de resolve_scale_offset ---------------------------------------------

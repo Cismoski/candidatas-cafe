@@ -30,6 +30,12 @@ class Bands(BaseModel):
 class Scl(BaseModel):
     keep_classes: list[int] = Field(min_length=1)
 
+    @model_validator(mode="after")
+    def _range(self) -> "Scl":
+        if any(not 0 <= c <= 11 for c in self.keep_classes):
+            raise ValueError("classes SCL vão de 0 a 11")
+        return self
+
 
 class Indices(BaseModel):
     savi_l: float = Field(ge=0, le=1)
@@ -47,6 +53,7 @@ class Rules(BaseModel):
     dense_ndvi_default: float = Field(ge=-1, le=1)
     dense_ndvi_floor: float = Field(ge=-1, le=1)
     dense_ndvi_ceiling: float = Field(ge=-1, le=1)
+    otsu_min_separability: float = Field(ge=0, le=1)
     ndwi_max: float = Field(ge=-1, le=1)
     dense_core_min_area_ha: float = Field(ge=0)
     dense_buffer_px: int = Field(ge=0)
@@ -65,16 +72,13 @@ class Rules(BaseModel):
 class Temporal(BaseModel):
     ndvi_min_other: float = Field(ge=-1, le=1)
     max_abs_ndvi_change: float = Field(gt=0, le=2)
+    cloud_blue_min: float = Field(gt=0)
+    min_overlap: float = Field(ge=0, le=1)
 
 
 class Morphology(BaseModel):
     opening_iterations: int = Field(ge=0)
-    closing_iterations: int = Field(ge=0)
     min_area_ha: float = Field(ge=0)
-
-
-class Vector(BaseModel):
-    simplify_tolerance_m: float = Field(ge=0)
 
 
 class ClassificationConfig(BaseModel):
@@ -85,7 +89,6 @@ class ClassificationConfig(BaseModel):
     rules: Rules
     temporal: Temporal
     morphology: Morphology
-    vector: Vector
 
 
 def load_config(path: Path = DEFAULT_CONFIG_PATH) -> ClassificationConfig:

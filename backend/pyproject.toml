@@ -41,7 +41,10 @@ target-version = "py313"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "S", "SIM"]
-ignore = ["S101", "E501"]  # comprimento de linha fica com o ruff format
+ignore = ["S101", "E501"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.File", "fastapi.Form"]  # comprimento de linha fica com o ruff format
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -55,13 +58,15 @@ source = ["app"]
 omit = ["app/processing/__main__.py"]
 
 [tool.mutmut]
-# Mutação só no núcleo de processamento (render.py fica de fora: saída visual,
-# verificada por inspeção e pelos testes de ponta a ponta).
+# Mutação no processamento, incluindo o summary.json (contexto do chatbot).
+# render.py fica de fora: saída visual, verificada por inspeção e testes e2e.
 source_paths = [
     "app/processing/radiometry.py",
     "app/processing/indices.py",
     "app/processing/classify.py",
     "app/processing/vectorize.py",
     "app/processing/reading.py",
+    "app/processing/pipeline.py",
+    "app/processing/config.py",
 ]
 also_copy = ["app/", "config/", "tests/"]

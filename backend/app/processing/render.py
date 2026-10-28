@@ -100,16 +100,17 @@ def write_download_png(
     *,
     title: str,
     footer: str,
-    upscale: int = 2,
 ) -> None:
     """Cor verdadeira + contornos dos polígonos + legenda, na grade original (norte acima)."""
+    # Ampliação 2x só em imagens pequenas: o PNG é o maior consumidor de memória.
+    upscale = 2 if max(scene.grid.width, scene.grid.height) <= 1024 else 1
     base = Image.fromarray(true_color(scene)).resize(
         (scene.grid.width * upscale, scene.grid.height * upscale), Image.Resampling.NEAREST
     )
     draw = ImageDraw.Draw(base)
     inv = ~scene.grid.transform
     for p in polygons:
-        geoms = getattr(p.geometry_display, "geoms", [p.geometry_display])
+        geoms = getattr(p.geometry, "geoms", [p.geometry])
         for g in geoms:
             for ring in [g.exterior, *g.interiors]:
                 pts = [tuple(c * upscale for c in inv @ xy) for xy in ring.coords]

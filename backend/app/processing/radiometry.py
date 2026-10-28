@@ -17,12 +17,15 @@ class RadiometryError(ValueError):
 def dn_to_reflectance(
     dn: npt.NDArray[np.integer], scale: float, offset: float, nodata_dn: int
 ) -> npt.NDArray[np.float32]:
-    """Converte DN inteiro em reflectância float32; NoData vira NaN."""
+    """Converte DN inteiro em reflectância float32 (>= 0); NoData vira NaN."""
     if not np.issubdtype(dn.dtype, np.integer):
         raise RadiometryError(
             f"esperado DN inteiro, recebido {dn.dtype}: dado já convertido não pode ser reconvertido"
         )
     refl = dn.astype(np.float32) * np.float32(scale) + np.float32(offset)
+    # Com offset -0.1, DN < 1000 vira reflectância negativa (ruído da correção
+    # atmosférica em alvos escuros). Recortar em 0 mantém os índices em [-1, 1].
+    np.maximum(refl, 0, out=refl)
     refl[dn == nodata_dn] = np.nan
     return refl
 

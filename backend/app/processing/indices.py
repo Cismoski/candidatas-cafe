@@ -40,8 +40,9 @@ def local_std(x: F32, window: int) -> F32:
     planta e entrelinha e gera variação local maior que um dossel fechado.
     """
     valid = np.isfinite(x)
-    filled = np.where(valid, x, 0).astype(np.float64)
-    w = valid.astype(np.float64)
+    # float32 basta: é atributo descritivo e economiza metade da memória (512 MB no deploy)
+    filled = np.where(valid, x, 0).astype(np.float32)
+    w = valid.astype(np.float32)
     n = ndimage.uniform_filter(w, window, mode="constant")
     s1 = ndimage.uniform_filter(filled, window, mode="constant")
     s2 = ndimage.uniform_filter(filled * filled, window, mode="constant")

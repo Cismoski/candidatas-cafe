@@ -165,9 +165,15 @@ def test_bva_temporal_floor(cfg, other, kept):
     assert (_temporal(cfg, other).n_components > 0) is kept
 
 
-def test_temporal_rule_rejects_dense_in_other_date(cfg_copy):
-    cfg_copy.temporal.max_abs_ndvi_change = 1.0
-    assert _temporal(cfg_copy, 0.9).n_components == 0
+def test_temporal_accepts_wet_season_increase(cfg):
+    """Café sobe de NDVI na chuva (0,5 -> 0,72): não pode ser descartado."""
+    res = _temporal(cfg, 0.72)
+    assert res.n_components == 1 and res.temporal_rejected_px == 0
+
+
+def test_temporal_reports_rejected_pixels(cfg):
+    res = _temporal(cfg, 0.1)  # virou solo na outra data
+    assert res.n_components == 0 and res.temporal_rejected_px == 40 * 20
 
 
 def test_temporal_missing_data_keeps_and_reports(cfg):
@@ -188,7 +194,8 @@ def test_otsu_splits_bimodal():
     v = np.concatenate([rng.normal(0.55, 0.03, 5000), rng.normal(0.82, 0.02, 5000)]).astype(
         np.float32
     )
-    assert 0.62 < otsu_threshold(v, 0.45, 1.0) < 0.76
+    t, eta = otsu_threshold(v, 0.45, 1.0)
+    assert 0.62 < t < 0.76 and eta > 0.85
 
 
 def test_dense_threshold_uses_otsu_when_in_range(cfg):
@@ -196,7 +203,7 @@ def test_dense_threshold_uses_otsu_when_in_range(cfg):
     v = np.concatenate([rng.normal(0.58, 0.03, 600), rng.normal(0.82, 0.02, 600)]).astype(
         np.float32
     )
-    t, src = dense_canopy_threshold(v, np.ones(v.shape, bool), cfg)
+    t, src, _ = dense_canopy_threshold(v, np.ones(v.shape, bool), cfg)
     assert (
         src.startswith("Otsu") and cfg.rules.dense_ndvi_floor <= t <= cfg.rules.dense_ndvi_ceiling
     )
@@ -207,14 +214,27 @@ def test_dense_threshold_falls_back_when_otsu_out_of_range(cfg):
     v = np.concatenate([rng.normal(0.47, 0.005, 600), rng.normal(0.55, 0.005, 600)]).astype(
         np.float32
     )
-    t, src = dense_canopy_threshold(v, np.ones(v.shape, bool), cfg)
+    t, src, _ = dense_canopy_threshold(v, np.ones(v.shape, bool), cfg)
     assert t == cfg.rules.dense_ndvi_default and "fora" in src
 
 
 def test_dense_threshold_falls_back_with_few_pixels(cfg):
     v = np.full(499, 0.6, dtype=np.float32)
-    t, src = dense_canopy_threshold(v, np.ones(v.shape, bool), cfg)
+    t, src, _ = dense_canopy_threshold(v, np.ones(v.shape, bool), cfg)
     assert t == cfg.rules.dense_ndvi_default and "poucos" in src
+
+
+@pytest.mark.parametrize(
+    "sample",
+    [
+        np.full(2000, 0.6, np.float32),  # constante: eta = 0
+        np.random.default_rng(5).normal(0.62, 0.05, 5000).astype(np.float32),  # unimodal
+    ],
+)
+def test_dense_threshold_falls_back_without_two_populations(cfg, sample):
+    t, src, eta = dense_canopy_threshold(sample, np.ones(sample.shape, bool), cfg)
+    assert t == cfg.rules.dense_ndvi_default and "duas populações" in src
+    assert eta < cfg.rules.otsu_min_separability
 
 
 def test_remove_small_empty_and_diagonal_connectivity():
@@ -233,8 +253,12 @@ grids = arrays(
 
 
 @settings(max_examples=60, deadline=None)
-@given(grids)
-def test_property_invariants(cfg, ndvi):
+@given(grids, st.integers(0, 14), st.integers(0, 14), st.floats(0.5, 0.625, width=32))
+def test_property_invariants(cfg, noise, y, x, value):
+    # ruído aleatório + um talhão garantido: o teste não fica vazio
+    ndvi = noise.copy()
+    block = ndvi[y : y + 9, x : x + 9]
+    ndvi[y : y + 9, x : x + 9] = np.where(np.isnan(block), np.nan, np.float32(value))
     res = run(cfg, ndvi)
     cand = res.classes == LandClass.CANDIDATE
     # NoData nunca vira candidato

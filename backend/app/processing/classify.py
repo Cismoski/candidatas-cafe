@@ -50,11 +50,18 @@ class Classification:
     n_components: int
     dense_threshold: float
     dense_threshold_source: str
+    otsu_separability: float | None
     temporal_unverified_px: int  # candidatos sem dado válido na segunda data
+    temporal_rejected_px: int  # vegetação intermediária rejeitada pela regra temporal
 
 
-def otsu_threshold(values: F32, lo: float, hi: float, bins: int = 256) -> float:
-    """Limiar de Otsu (1979): maximiza a variância entre as duas classes."""
+def otsu_threshold(values: F32, lo: float, hi: float, bins: int = 256) -> tuple[float, float]:
+    """Limiar de Otsu (1979): maximiza a variância entre as duas classes.
+
+    Devolve (limiar, eta), em que eta = var_entre / var_total ∈ [0, 1] mede a
+    separabilidade. Uma gaussiana única já dá eta ≈ 2/π ≈ 0,64; só valores
+    acima disso indicam duas populações de fato.
+    """
     hist, edges = np.histogram(values, bins=bins, range=(lo, hi))
     centers = (edges[:-1] + edges[1:]) / 2
     w0 = np.cumsum(hist).astype(np.float64)
@@ -66,36 +73,44 @@ def otsu_threshold(values: F32, lo: float, hi: float, bins: int = 256) -> float:
     # Bins vazios entre as modas criam um platô de máximos; usa o meio dele em vez
     # do primeiro ponto (que colaria o limiar na moda inferior).
     ties = np.flatnonzero(between >= between.max() * (1 - 1e-9))
-    return float((edges[ties[0] + 1] + edges[ties[-1] + 1]) / 2)
+    t = float((edges[ties[0] + 1] + edges[ties[-1] + 1]) / 2)
+    n = w0[-1]
+    total_var = float((hist * (centers - m0[-1] / n) ** 2).sum() / n) if n else 0.0
+    eta = float(between.max() / n**2 / total_var) if total_var > 0 else 0.0
+    return t, eta
 
 
 def dense_canopy_threshold(
     ndvi: F32, vegetated: Mask, cfg: ClassificationConfig
-) -> tuple[float, str]:
+) -> tuple[float, str, float | None]:
+    """Devolve (limiar, origem, eta). Usa o padrão da config quando o Otsu não é confiável."""
     r = cfg.rules
-    sample = ndvi[vegetated & (ndvi >= r.ndvi_min)]
+    sample = ndvi[vegetated & (ndvi >= np.float32(r.ndvi_min))]
     if sample.size < MIN_PIXELS_FOR_OTSU:
-        return r.dense_ndvi_default, "padrão (poucos pixels de vegetação para Otsu)"
-    t = otsu_threshold(sample, r.ndvi_min, 1.0)
-    if r.dense_ndvi_floor <= t <= r.dense_ndvi_ceiling:
-        return t, "Otsu sobre o NDVI da vegetação"
-    return r.dense_ndvi_default, f"padrão (Otsu={t:.3f} fora de [floor, ceiling])"
+        return r.dense_ndvi_default, "padrão (poucos pixels de vegetação para Otsu)", None
+    t, eta = otsu_threshold(sample, r.ndvi_min, 1.0)
+    if eta < r.otsu_min_separability:
+        return r.dense_ndvi_default, f"padrão (histograma sem duas populações: eta={eta:.2f})", eta
+    if not r.dense_ndvi_floor <= t <= r.dense_ndvi_ceiling:
+        return r.dense_ndvi_default, f"padrão (Otsu={t:.3f} fora de [floor, ceiling])", eta
+    return t, "Otsu sobre o NDVI da vegetação", eta
 
 
 def _min_pixels(area_ha: float, pixel_area_m2: float) -> int:
     return max(int(np.ceil(area_ha * 10_000 / pixel_area_m2 - 1e-9)), 1)
 
 
-def _morph(op, mask: Mask, iterations: int) -> Mask:
-    """Abertura/fechamento com a borda replicada.
+def _opening(mask: Mask, iterations: int) -> Mask:
+    """Abertura (remove pixels isolados e pontes finas) com a borda replicada.
 
-    O scipy trata o lado de fora da imagem como fundo, o que faria um talhão
-    encostado na borda do recorte perder a fileira da borda.
+    Não há fechamento de propósito: ele recolocaria como candidatos pixels que
+    as regras rejeitaram (borda de mata, regra temporal, NoData). Falhas dentro
+    do talhão ficam como buracos no polígono, o que é mais honesto.
     """
     if iterations == 0:
         return mask
     padded = np.pad(mask, iterations, mode="edge")
-    out = op(padded, structure=EIGHT, iterations=iterations)
+    out = ndimage.binary_opening(padded, structure=EIGHT, iterations=iterations)
     return out[iterations:-iterations, iterations:-iterations]
 
 
@@ -136,7 +151,7 @@ def classify(
     land = quality & ~water
     classes[water] = LandClass.WATER
 
-    threshold, source = dense_canopy_threshold(ndvi, land, cfg)
+    threshold, source, eta = dense_canopy_threshold(ndvi, land, cfg)
     dense_t = np.float32(threshold)
     low = land & (ndvi < ndvi_min)
     dense = land & (ndvi >= dense_t)
@@ -156,22 +171,21 @@ def classify(
         near_core = np.zeros_like(core)
     candidate = intermediate & ~near_core
 
-    other_ok = None
+    other_ok, rejected = None, 0
     if other_ndvi is not None:
+        # Café é perene: continua vegetado na outra data e varia pouco. Não
+        # comparamos com o limiar de dossel da data principal: na chuva o café
+        # sobe de NDVI (ex.: 0,58 -> 0,78) e seria descartado por engano.
         other_ok = np.isfinite(other_ndvi)
-        persistent = (
-            (other_ndvi >= np.float32(t.ndvi_min_other))
-            & (other_ndvi < dense_t)
-            & (np.abs(other_ndvi - ndvi) <= np.float32(t.max_abs_ndvi_change))
+        persistent = (other_ndvi >= np.float32(t.ndvi_min_other)) & (
+            np.abs(other_ndvi - ndvi) <= np.float32(t.max_abs_ndvi_change)
         )
         # Sem dado na segunda data (nuvem mascarada) => a regra não se aplica.
-        candidate &= persistent | ~other_ok
+        keep = persistent | ~other_ok
+        rejected = int((candidate & ~keep).sum())
+        candidate &= keep
 
-    candidate = _morph(ndimage.binary_opening, candidate, m.opening_iterations)
-    candidate = _morph(ndimage.binary_closing, candidate, m.closing_iterations)
-    # O fechamento pode preencher pixels que não são intermediários (ex.: um pixel
-    # de NoData ou de mata dentro do talhão); eles nunca podem virar candidatos.
-    candidate &= intermediate
+    candidate = _opening(candidate, m.opening_iterations)
 
     labels, n = remove_small(candidate, _min_pixels(m.min_area_ha, pixel_area_m2))
     final = labels > 0
@@ -184,5 +198,7 @@ def classify(
         n_components=n,
         dense_threshold=threshold,
         dense_threshold_source=source,
+        otsu_separability=eta,
+        temporal_rejected_px=rejected,
         temporal_unverified_px=0 if other_ok is None else int((final & ~other_ok).sum()),
     )

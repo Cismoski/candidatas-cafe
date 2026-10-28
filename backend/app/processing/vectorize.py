@@ -18,31 +18,32 @@ GEOJSON_DECIMALS = 6  # ~0,1 m: RFC 7946 recomenda não exceder a precisão úti
 @dataclass
 class CandidatePolygon:
     id: int
-    geometry_projected: shapely.Geometry  # exata (bordas de pixel), CRS da cena
-    geometry_display: shapely.Geometry  # simplificada, CRS da cena
+    geometry: shapely.Geometry  # exata (bordas de pixel), CRS da cena
     area_ha: float
 
 
-def polygons_from_labels(
-    labels: npt.NDArray[np.int32], grid: Grid, simplify_tolerance_m: float
-) -> list[CandidatePolygon]:
+def polygons_from_labels(labels: npt.NDArray[np.int32], grid: Grid) -> list[CandidatePolygon]:
     """Um polígono (ou multipolígono) por componente rotulado.
 
-    A área vem da geometria exata em metros (CRS projetado da cena), que é
-    igual a n_pixels * área do pixel. A simplificação serve só para exibição.
+    A área vem da geometria exata em metros (CRS UTM da cena), que é igual a
+    n_pixels * área do pixel. Não há simplificação: com tolerância menor que a
+    diagonal do pixel ela não muda nada, e com tolerância maior altera a área.
+
+    connectivity=4 na vetorização: com 8, pixels que se tocam só pela quina viram
+    um anel que se auto-intercepta (geometria inválida). Com 4, viram partes
+    separadas do mesmo MultiPolygon, que é válido.
     """
     if labels.max(initial=0) == 0:
         return []
     parts: dict[int, list[shapely.Geometry]] = {}
     for geom, value in features.shapes(
-        labels, mask=labels > 0, transform=grid.transform, connectivity=8
+        labels, mask=labels > 0, transform=grid.transform, connectivity=4
     ):
         parts.setdefault(int(value), []).append(shape(geom))
     out = []
     for label in sorted(parts):
-        exact = unary_union(parts[label])
-        display = exact.simplify(simplify_tolerance_m, preserve_topology=True)
-        out.append(CandidatePolygon(label, exact, display, exact.area / 10_000))
+        geom = shapely.make_valid(unary_union(parts[label]))
+        out.append(CandidatePolygon(label, geom, geom.area / 10_000))
     return out
 
 
@@ -65,7 +66,7 @@ def feature_collection(
     """GeoJSON RFC 7946: WGS84 lon/lat, anel externo anti-horário."""
     feats = []
     for p in polygons:
-        geom = shapely.orient_polygons(to_wgs84(p.geometry_display, grid))
+        geom = shapely.orient_polygons(to_wgs84(p.geometry, grid))
         gj = mapping(geom)
         feats.append(
             {

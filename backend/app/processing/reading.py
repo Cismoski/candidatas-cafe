@@ -1,5 +1,6 @@
 """Leitura de cenas e alinhamento de rasters auxiliares na grade da cena principal."""
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -53,25 +54,48 @@ class Scene:
     radiometry_source: str
 
 
+ISO_DATETIME = re.compile(r"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?Z?)?$")
+ITEM_ID = re.compile(r"^[A-Za-z0-9_\-]{1,80}$")
+
+
+def crs_problem(crs: CRS | None) -> str | None:
+    """Só UTM é aceito: a área em hectares vem da grade, e em UTM o fator de
+    escala é <= 0,04%. Em Web Mercator (também "projetado em metros") a área
+    sairia ~15% maior nesta latitude."""
+    if crs is None:
+        return "o raster não tem sistema de referência (CRS)"
+    if not crs.is_projected or crs.to_dict().get("proj") != "utm":
+        return f"CRS {crs.to_string()} não é UTM; use a projeção UTM da cena (ex.: EPSG:32723)"
+    return None
+
+
+def grid_problem(transform: Affine) -> str | None:
+    if transform.b != 0 or transform.d != 0:
+        return "raster rotacionado não é suportado"
+    if transform.e >= 0:
+        return "raster com orientação sul-acima não é suportado"
+    return None
+
+
 def _check_grid(ds: rasterio.DatasetReader) -> Grid:
-    if ds.crs is None:
-        raise SceneError("o raster não tem sistema de referência (CRS)")
-    if not ds.crs.is_projected or (ds.crs.linear_units or "").lower() not in {"metre", "meter"}:
-        raise SceneError(
-            f"CRS {ds.crs.to_string()} não é projetado em metros; use UTM (ex.: EPSG:32723)"
-        )
-    if ds.transform.b != 0 or ds.transform.d != 0:
-        raise SceneError("raster rotacionado não é suportado")
+    problem = crs_problem(ds.crs) or grid_problem(ds.transform)
+    if problem:
+        raise SceneError(problem)
     return Grid(ds.crs, ds.transform, ds.height, ds.width)
 
 
+def _safe_tag(value: str | None, pattern: re.Pattern) -> str | None:
+    """Tags do arquivo vão para o summary.json (contexto do LLM): só aceita o formato esperado."""
+    return value if value is not None and pattern.fullmatch(value) else None
+
+
 def _reflectance_bands(
-    dn: npt.NDArray[np.integer], scales, offsets, cfg: ClassificationConfig
+    dn: npt.NDArray[np.integer], scales, offsets, nodata_dn: int, cfg: ClassificationConfig
 ) -> dict[str, F32]:
     out = {}
     for name in ("blue", "green", "red", "nir"):
         i = getattr(cfg.bands, name) - 1
-        out[name] = dn_to_reflectance(dn[i], scales[i], offsets[i], cfg.radiometry.nodata_dn)
+        out[name] = dn_to_reflectance(dn[i], scales[i], offsets[i], nodata_dn)
     return out
 
 
@@ -79,14 +103,16 @@ def _scene_from_dn(dn, ds, grid: Grid, cfg: ClassificationConfig) -> Scene:
     scales, offsets, source = resolve_scale_offset(
         ds.scales, ds.offsets, cfg.radiometry.default_scale, cfg.radiometry.default_offset
     )
-    bands = _reflectance_bands(dn, scales, offsets, cfg)
+    # NoData declarado no arquivo tem precedência; senão, o padrão do L2A (0)
+    nodata = int(ds.nodata) if ds.nodata is not None else cfg.radiometry.nodata_dn
+    bands = _reflectance_bands(dn, scales, offsets, nodata, cfg)
     valid = np.logical_and.reduce([np.isfinite(b) for b in bands.values()])
     tags = ds.tags()
     return Scene(
         grid=grid,
         valid=valid,
-        acquired_utc=tags.get("ACQUISITION_UTC"),
-        source_item=tags.get("SOURCE_ITEM"),
+        acquired_utc=_safe_tag(tags.get("ACQUISITION_UTC"), ISO_DATETIME),
+        source_item=_safe_tag(tags.get("SOURCE_ITEM"), ITEM_ID),
         radiometry_source=source,
         **bands,
     )
