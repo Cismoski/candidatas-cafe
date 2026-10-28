@@ -1,0 +1,62 @@
+# Parâmetros do classificador de áreas CANDIDATAS a café.
+# Nenhum resultado fica no código: tudo que é limiar está aqui e é registrado
+# no summary.json de cada análise (seção "method.parameters").
+# A justificativa de cada valor está em docs/nota-pesquisa.md e no README.
+
+radiometry:
+  # Sentinel-2 L2A, processing baseline >= 04.00: reflectância = DN * 1e-4 - 0.1.
+  # Usado só quando o GeoTIFF não traz scale/offset próprios (tags de banda).
+  default_scale: 0.0001
+  default_offset: -0.1
+  nodata_dn: 0
+
+bands:
+  # Ordem esperada (1-based) no GeoTIFF enviado. Igual ao kit.
+  blue: 1
+  green: 2
+  red: 3
+  nir: 4
+
+scl:
+  # Classes SCL mantidas. 4 = vegetação. Excluídas, entre outras:
+  # 0 nodata, 1 saturado, 2 sombra/escuro, 3 sombra de nuvem, 5 não vegetado,
+  # 6 água, 7 não classificado, 8-10 nuvem/cirrus, 11 neve.
+  keep_classes: [4]
+
+indices:
+  savi_l: 0.5          # Huete (1988): L = 0.5 para coberturas intermediárias
+  # Janela (px) do desvio-padrão local do NDVI = 50 m. Só descritivo (atributo
+  # dos polígonos): não entra nas regras.
+  texture_window: 5
+
+rules:
+  # Piso de vigor: abaixo disso é solo exposto/pastagem seca na estação seca.
+  ndvi_min: 0.45
+  # Teto que separa dossel fechado (mata/eucalipto). Calculado por imagem
+  # pelo método de Otsu sobre o NDVI dos pixels de vegetação válidos e limitado
+  # a [dense_ndvi_floor, dense_ndvi_ceiling]. Se o Otsu cair fora, usa o default.
+  dense_ndvi_default: 0.72
+  dense_ndvi_floor: 0.65
+  dense_ndvi_ceiling: 0.80
+  # Água/umidade: NDWI (McFeeters) acima disso é excluído.
+  ndwi_max: 0.0
+  # Manchas de dossel fechado com área >= dense_core_min_area_ha são tratadas
+  # como remanescentes de mata/eucalipto; pixels a até dense_buffer_px delas são
+  # descartados (borda de mata, mata ciliar, pixels mistos). 1 px = 10 m.
+  dense_core_min_area_ha: 0.5
+  dense_buffer_px: 1
+
+temporal:
+  # Só aplicado quando uma segunda data é enviada.
+  # Café é perene: precisa continuar vegetado na outra data...
+  ndvi_min_other: 0.45
+  # ...e não pode virar dossel fechado nem variar demais (cultura anual/pasto).
+  max_abs_ndvi_change: 0.25
+
+morphology:
+  opening_iterations: 1    # remove pixels isolados e pontes de 1 px
+  closing_iterations: 1    # fecha falhas de 1 px dentro do talhão
+  min_area_ha: 0.5         # = 50 pixels de 10 m
+
+vector:
+  simplify_tolerance_m: 5  # metade do pixel: tira o serrilhado sem deslocar bordas

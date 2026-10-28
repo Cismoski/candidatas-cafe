@@ -1,0 +1,67 @@
+[project]
+name = "globalwatch-backend"
+version = "0.1.0"
+description = "API e pipeline de geoprocessamento para identificar áreas candidatas de café em imagens Sentinel-2"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "fastapi>=0.162.0",
+    "google-auth>=2.62.0",
+    "google-genai>=2.33.0",
+    "numpy>=2.5.4",
+    "pillow>=13.0.0",
+    "pydantic-settings>=2.16.2",
+    "pyjwt>=2.15.1",
+    "pyproj>=3.8.0",
+    "python-multipart>=0.0.32",
+    "pyyaml>=6.0.3",
+    "rasterio>=1.5.2",
+    "requests>=2.34.2",
+    "scipy>=1.18.1",
+    "shapely>=2.2.0",
+    "slowapi>=0.1.10",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "hypothesis>=6.170.13",
+    "mutmut>=3.8.1",
+    "pytest>=9.2.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.3",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "SIM"]
+ignore = ["S101", "E501"]  # comprimento de linha fica com o ruff format
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["."]
+filterwarnings = ["error::PendingDeprecationWarning", "error::DeprecationWarning:app.*"]
+
+[tool.coverage.run]
+branch = true
+source = ["app"]
+omit = ["app/processing/__main__.py"]
+
+[tool.mutmut]
+# Mutação só no núcleo de processamento (render.py fica de fora: saída visual,
+# verificada por inspeção e pelos testes de ponta a ponta).
+source_paths = [
+    "app/processing/radiometry.py",
+    "app/processing/indices.py",
+    "app/processing/classify.py",
+    "app/processing/vectorize.py",
+    "app/processing/reading.py",
+]
+also_copy = ["app/", "config/", "tests/"]

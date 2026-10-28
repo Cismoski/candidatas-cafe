@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.hypothesis/
+mutants/
+
+# Node
+node_modules/
+dist/
+
+# Segredos e dados locais
+.env
+.env.*
+!.env.example
+data/
+
+# Kit do desafio: fica fora do repo público até decidirmos o que redistribuir
+kit/
