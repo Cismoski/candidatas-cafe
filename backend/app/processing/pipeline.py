@@ -10,6 +10,7 @@ Produtos (nomes fixos, gerados pelo servidor):
 """
 
 import json
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -21,7 +22,8 @@ from . import indices
 from .classify import CLASS_LABELS_PT, Classification, LandClass, classify
 from .config import ClassificationConfig
 from .reading import Scene, SceneError, read_scene, read_scene_on_grid, read_scl_on_grid
-from .reference import mapbiomas_reference
+from .reference import mapbiomas_reference, unavailable
+from .reference import metadata as reference_metadata
 from .render import (
     write_classes_geotiff,
     write_download_png,
@@ -31,6 +33,8 @@ from .render import (
 from .vectorize import feature_collection, polygons_from_labels, to_wgs84
 
 # 2: mode "temporal" -> "two_dates"; temporal_ndvi_shift/temporal_shift_pixels
+log = logging.getLogger("globalwatch.pipeline")
+
 SUMMARY_SCHEMA_VERSION = 2
 
 LIMITATIONS = [
@@ -266,11 +270,18 @@ def run_analysis(
     # Referência independente (MapBiomas): opcional, nunca derruba a análise
     reference = None
     if reference_url:
-        reference, ref_mask = mapbiomas_reference(
-            reference_url, scene.grid, result.classes, scene.acquired_utc
-        )
-        if ref_mask is not None:
-            write_reference_overlay(ref_mask, scene.grid, out_dir)
+        try:
+            reference, ref_mask = mapbiomas_reference(
+                reference_url, scene.grid, result.classes, scene.acquired_utc
+            )
+            if ref_mask is not None:
+                write_reference_overlay(ref_mask, scene.grid, out_dir)
+        except Exception:  # métricas ou PNG: a etapa é opcional, a análise segue
+            log.exception("falha na comparação com o MapBiomas")
+            (out_dir / "overlay_referencia.png").unlink(missing_ok=True)
+            reference = unavailable(
+                reference_metadata(scene.acquired_utc), "erro ao comparar com o MapBiomas"
+            )
 
     summary = {
         "schema_version": SUMMARY_SCHEMA_VERSION,

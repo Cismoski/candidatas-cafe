@@ -3,7 +3,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -62,6 +62,22 @@ class Settings(BaseSettings):
     retention_sweep_minutes: int = Field(default=15, ge=1)
     # Conta (e-mail/nome) sem login há N dias e sem análises é apagada
     user_retention_days: int = Field(default=30, ge=1)
+
+    @field_validator("mapbiomas_url")
+    @classmethod
+    def _mapbiomas_url(cls, v: str) -> str:
+        """Vazio desliga. Senão: só https e com {year} (o mapa é anual); erro de
+        configuração aparece na subida, não escondido como "indisponível"."""
+        if not v:
+            return v
+        if not v.startswith("https://"):
+            raise ValueError("MAPBIOMAS_URL deve começar com https://")
+        try:
+            if v.format(year=2025) == v:
+                raise ValueError("MAPBIOMAS_URL precisa conter {year}")
+        except (KeyError, IndexError):
+            raise ValueError("MAPBIOMAS_URL só pode ter o campo {year}") from None
+        return v
 
     @property
     def cors_origin_list(self) -> list[str]:

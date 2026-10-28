@@ -156,7 +156,8 @@ def build_context(summary: dict, question: str = "", history: Iterable[str] = ()
     if ref.get("status") == "ok":
         pct = lambda v: None if v is None else round(v * 100, 1)  # noqa: E731
         ctx["referencia_mapbiomas"] = {
-            "fonte": f"{ref['source']}, {ref['year']}",
+            "fonte": ref["source"],
+            "ano": ref["year"],
             "cafe_mapbiomas_ha": ref["reference_coffee_ha"],
             "iou": ref["iou"],
             "candidatas_sobre_cafe_mapbiomas_percentual": pct(
@@ -205,7 +206,8 @@ _ACCURACY_ADJ = re.compile(
     r"(?:alta|elevada|grande|boa|otima|excelente)\s+(?:acurac|precisao|confiab|exatidao)"
     r"|\b(?:certamente|com certeza|sem duvida|garantidamente)\b"
 )
-_SKIP_KEYS = {"cena"}  # id da cena (tag do arquivo) tem dígitos que não são medidas
+# id da cena e nome da fonte têm dígitos que não são medidas ("Coleção 11", "30 m")
+_SKIP_KEYS = {"cena", "fonte"}
 
 
 def _numbers_in(value, key: str = "", percent: bool = False) -> Iterable[tuple[float, bool]]:
@@ -430,7 +432,8 @@ def automatic_answer(question: str, summary: dict) -> str:
             f"NDWI médio {_num(p['ndwi_mean'])} e SAVI médio {_num(p['savi_mean'])}{extra}."
         )
     ref = summary.get("reference") or {}
-    if re.search(r"mapbiomas|referencia|concord|compar", q):
+    # só pedidos explícitos: "compare com a segunda data" ou "data de referência" não são isso
+    if re.search(r"mapbiomas|concordan|concorda com", q):
         if ref.get("status") != "ok":
             return "A comparação com o MapBiomas não está disponível nesta análise."
         return reference_answer(ref)

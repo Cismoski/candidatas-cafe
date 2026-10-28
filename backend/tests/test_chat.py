@@ -499,6 +499,23 @@ def test_reference_in_context_and_answers_use_only_its_numbers():
         assert chat.unsupported_numbers(a, allowed) == [], q
     # percentual aninhado é percentual; o mesmo número sem % não vira "permitido" por isso
     assert chat.unsupported_numbers("Pastagem: 34,4% das candidatas", allowed) == []
+    assert chat.unsupported_numbers("Pastagem: 34,4 ha", allowed) == ["34,4"]
+    # números do nome da fonte ("Coleção 11", "30 m") não entram como medidas
+    assert chat.unsupported_numbers("São 30 ha.", allowed) == ["30"]
+
+
+@pytest.mark.parametrize(
+    "q",
+    [
+        "compare com a segunda data",
+        "qual a data de referência da imagem?",
+        "comparado com a mata, quanto é café?",
+    ],
+)
+def test_comparison_words_do_not_trigger_mapbiomas_answer(q):
+    s = summary()
+    s["reference"] = REF
+    assert "MapBiomas" not in chat.automatic_answer(q, s)
 
 
 @pytest.mark.parametrize("ref", [None, {"status": "unavailable"}, {"status": "no_coverage"}])

@@ -13,6 +13,7 @@ que a referência ficou indisponível.
 """
 
 import logging
+import threading
 
 import numpy as np
 import numpy.typing as npt
@@ -59,14 +60,30 @@ LABELS = {
     47: "Citrus",
     48: "Outras lavouras perenes",
     62: "Algodão",
+    # códigos novos ou menos comuns da Coleção 11 que podem aparecer em MG
+    5: "Mangue",
+    6: "Floresta alagável",
+    19: "Lavoura temporária",
+    31: "Aquicultura",
+    36: "Lavoura perene",
+    75: "Usina fotovoltaica",
+    77: "Formação herbáceo-arbustiva",
+    91: "Parque eólico",
 }
+# Os timeouts do GDAL valem por requisição e somam (abrir o COG faz várias;
+# com retry, o padrão de espera é 30 s). Por isso: sem retry, conexão lenta
+# aborta, e a leitura inteira tem um orçamento próprio (READ_BUDGET_S).
 GDAL_ENV = {
     "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
     "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif",
-    "GDAL_HTTP_TIMEOUT": "15",
+    "GDAL_HTTP_TIMEOUT": "10",
     "GDAL_HTTP_CONNECTTIMEOUT": "5",
-    "GDAL_HTTP_MAX_RETRY": "1",
+    "GDAL_HTTP_MAX_RETRY": "0",
+    "GDAL_HTTP_LOW_SPEED_LIMIT": "1024",  # bytes/s
+    "GDAL_HTTP_LOW_SPEED_TIME": "5",
 }
+# Leitura medida: ~4 s. Acima disso a análise segue sem a referência.
+READ_BUDGET_S = 30.0
 
 
 def reference_year(acquired_utc: str | None) -> int:
@@ -94,6 +111,27 @@ def read_on_grid(url: str, grid: Grid) -> npt.NDArray[np.uint8]:
             dst_nodata=0,
         )
     return out
+
+
+def read_with_budget(url: str, grid: Grid, budget_s: float) -> npt.NDArray[np.uint8]:
+    """read_on_grid com teto de tempo total. A thread que estourar é abandonada
+    (daemon): o job roda num subprocesso que termina logo depois."""
+    box: dict = {}
+
+    def work():
+        try:
+            box["data"] = read_on_grid(url, grid)
+        except BaseException as e:  # noqa: BLE001 - repassado abaixo
+            box["error"] = e
+
+    t = threading.Thread(target=work, daemon=True, name="mapbiomas")
+    t.start()
+    t.join(budget_s)
+    if t.is_alive():
+        raise TimeoutError(f"MapBiomas não respondeu em {budget_s:g} s")
+    if "error" in box:
+        raise box["error"]
+    return box["data"]
 
 
 def _label(code: int) -> str:
@@ -133,30 +171,47 @@ def compare(mb: npt.NDArray[np.uint8], classes: npt.NDArray[np.uint8], pixel_ha:
     }
 
 
-def mapbiomas_reference(
-    url_template: str, grid: Grid, classes: npt.NDArray[np.uint8], acquired_utc: str | None
-) -> tuple[dict, npt.NDArray[np.bool_] | None]:
-    """(bloco do summary, máscara de café do MapBiomas na grade ou None)."""
-    year = reference_year(acquired_utc)
-    meta = {
+def unavailable(meta: dict, reason: str) -> dict:
+    return {**meta, "status": "unavailable", "reason": reason}
+
+
+def metadata(acquired_utc: str | None) -> dict:
+    return {
         "source": SOURCE,
-        "year": year,
+        "year": reference_year(acquired_utc),
         "license": LICENSE,
         "info_url": INFO_URL,
         "citation": CITATION,
         "note": "Concordância com outro mapa (30 m, reamostrado por vizinho mais próximo), "
         "não acurácia.",
     }
+
+
+def mapbiomas_reference(
+    url_template: str,
+    grid: Grid,
+    classes: npt.NDArray[np.uint8],
+    acquired_utc: str | None,
+    budget_s: float = READ_BUDGET_S,
+) -> tuple[dict, npt.NDArray[np.bool_] | None]:
+    """(bloco do summary, máscara de café do MapBiomas na grade ou None)."""
+    meta = metadata(acquired_utc)
+    year = meta["year"]
     try:
-        mb = read_on_grid(url_template.format(year=year), grid)
+        mb = read_with_budget(url_template.format(year=year), grid, budget_s)
     except Exception as e:  # rede, 404, timeout, arquivo inválido
         log.warning("MapBiomas indisponível: %s", type(e).__name__)
-        return {**meta, "status": "unavailable", "reason": "não foi possível ler o MapBiomas"}, None
+        reason = (
+            "o MapBiomas demorou demais para responder"
+            if isinstance(e, TimeoutError)
+            else "não foi possível ler o MapBiomas"
+        )
+        return unavailable(meta, reason), None
     if not (mb > 0).any():
         return {
             **meta,
             "status": "no_coverage",
             "reason": "área fora da cobertura do MapBiomas",
         }, None
-    pixel_ha = abs(grid.transform.a * grid.transform.e) / 10_000
+    pixel_ha = grid.pixel_area_m2 / 10_000
     return {**meta, "status": "ok", **compare(mb, classes, pixel_ha)}, mb == COFFEE

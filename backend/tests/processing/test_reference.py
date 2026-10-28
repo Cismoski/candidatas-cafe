@@ -163,3 +163,73 @@ def test_mask_returned_matches_coffee(tmp_path, scene, cfg):
     classes = np.full((60, 60), LandClass.LOW_VEGETATION, np.uint8)
     _, mask = mapbiomas_reference(str(tmp_path / "mb_{year}.tif"), grid, classes, "2025-01-01")
     assert mask.sum() == 144 and mask[39:51, 39:51].all()
+
+
+# --- revisão: tempo, falhas parciais, alinhamento -----------------------------------
+def test_hanging_server_is_cut_by_the_budget(tmp_path, scene, cfg):
+    """Regressão: servidor que aceita e não responde levava 120 s (timeouts somados)."""
+    import socket
+    import threading
+    import time
+
+    from app.processing.reading import read_scene
+
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen()
+    conns = []
+    threading.Thread(target=lambda: conns.append(srv.accept()), daemon=True).start()
+    url = f"http://127.0.0.1:{srv.getsockname()[1]}/mb_{{year}}.tif"
+    grid = read_scene(scene, cfg).grid
+    t0 = time.monotonic()
+    ref, mask = mapbiomas_reference(url, grid, np.zeros((60, 60), np.uint8), None, budget_s=1.0)
+    assert time.monotonic() - t0 < 3
+    assert ref["status"] == "unavailable" and "demorou" in ref["reason"] and mask is None
+    srv.close()
+
+
+def test_failure_after_reading_does_not_fail_the_analysis(tmp_path, scene, cfg, monkeypatch):
+    import app.processing.pipeline as pl
+
+    def boom(*a, **k):
+        raise OSError("disco cheio")
+
+    monkeypatch.setattr(pl, "write_reference_overlay", boom)
+    mb_with_coffee(tmp_path)
+    s = run_analysis(scene, tmp_path / "o", cfg, reference_url=str(tmp_path / "mb_{year}.tif"))
+    assert s["reference"]["status"] == "unavailable" and s["reference"]["license"] == "CC BY 4.0"
+    assert s["map"]["reference_overlay"] is False
+    assert s["results"]["candidate_polygons"] == 1
+
+
+def test_partial_coverage_compares_only_where_reference_has_data(tmp_path, scene, cfg):
+    mb = np.full((20, 20), PASTURE, np.uint8)
+    mb[:, :10] = 0  # metade oeste fora do MapBiomas
+    write_mb(tmp_path / "mb_2025.tif", mb)
+    ref = run_analysis(scene, tmp_path / "o", cfg, reference_url=str(tmp_path / "mb_{year}.tif"))[
+        "reference"
+    ]
+    assert ref["status"] == "ok" and ref["compared_area_ha"] == 18.0  # 60 x 30 px
+
+
+def test_geographic_patch_lands_on_the_right_pixels(tmp_path, scene, cfg):
+    """Café num quadrado conhecido em EPSG:4326 cai nos pixels certos da grade UTM."""
+    from app.processing.reading import read_scene
+
+    to_ll = Transformer.from_crs(CRS, "EPSG:4326", always_xy=True)
+    west, north = to_ll.transform(ORIGIN[0] - 300, ORIGIN[1] + 300)
+    res = 0.00009  # ~10 m
+    mb = np.full((1000, 1000), PASTURE, np.uint8)
+    # quadrado em volta do centro do pixel UTM (45, 45)
+    cx, cy = to_ll.transform(ORIGIN[0] + 455, ORIGIN[1] - 455)
+    col, row = int((cx - west) / res), int((north - cy) / res)
+    mb[row - 4 : row + 5, col - 4 : col + 5] = COFFEE
+    write_mb(
+        tmp_path / "mb_2025.tif", mb, crs="EPSG:4326", transform=from_origin(west, north, res, res)
+    )
+    grid = read_scene(scene, cfg).grid
+    _, mask = mapbiomas_reference(
+        str(tmp_path / "mb_{year}.tif"), grid, np.zeros((60, 60), np.uint8), "2025-08-01"
+    )
+    assert mask[45, 45] and not mask[20, 20] and not mask[45, 35]
+    assert 50 <= mask.sum() <= 110  # ~9x9 px de ~10 m (a projeção distorce um pouco)
