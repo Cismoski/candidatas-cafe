@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useId, useRef, useState } from "react";
+import { type KeyboardEvent, useId, useMemo, useRef, useState } from "react";
 import type { Analysis, DownloadName, Summary } from "../api/types";
 import { useDeleteAnalysis } from "../api/queries";
 import { useAuth } from "../auth/AuthProvider";
@@ -20,6 +20,10 @@ interface Props {
 export function AnalysisDetail({ analysis, focusPolygon, onFocusPolygon, onDeleted, onNew }: Props) {
   const [tab, setTab] = useState<Tab>("result");
   const now = useNow();
+  const polygonIds = useMemo(
+    () => new Set(analysis.summary?.results.polygons.map((p) => p.id) ?? []),
+    [analysis.summary],
+  );
   return (
     <article className="detail" aria-labelledby="detail-title">
       <header className="detail__head">
@@ -62,7 +66,7 @@ export function AnalysisDetail({ analysis, focusPolygon, onFocusPolygon, onDelet
             </div>
           ) : (
             <div className="detail__body" role="tabpanel" id="panel-chat" aria-labelledby="tab-chat">
-              <ChatPanel analysisId={analysis.id} onFocusPolygon={onFocusPolygon} />
+              <ChatPanel analysisId={analysis.id} polygonIds={polygonIds} onFocusPolygon={onFocusPolygon} />
             </div>
           )}
         </>

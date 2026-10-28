@@ -18,6 +18,7 @@ export const keys = {
   one: (id: string) => ["analyses", id] as const,
   file: (id: string, name: DownloadName) => ["analyses", id, "file", name] as const,
   chat: (id: string) => ["analyses", id, "chat"] as const,
+  ask: (id: string) => ["ask", id] as const,
 };
 
 export function useAnalyses() {
@@ -120,6 +121,9 @@ export function useAsk(id: string) {
   const { api } = useAuth();
   const qc = useQueryClient();
   return useMutation({
+    // A chave deixa o painel achar a pergunta em andamento mesmo se for desmontado
+    // (troca de aba) e montado de novo: sem isso daria para reenviar e gastar cota 2x.
+    mutationKey: keys.ask(id),
     retry: false, // cada pergunta gasta cota; nunca repetir sozinho
     mutationFn: (message: string) => api.ask(id, message),
     onSuccess: (out: ChatOut) => {
@@ -127,6 +131,11 @@ export function useAsk(id: string) {
         messages: [...(prev?.messages ?? []), ...out.messages],
         remaining_today: out.remaining_today,
       }));
+    },
+    onError: (e) => {
+      if (e instanceof ApiError && e.status === 429) {
+        qc.setQueryData<ChatOut>(keys.chat(id), (prev) => prev && { ...prev, remaining_today: 0 });
+      }
     },
   });
 }

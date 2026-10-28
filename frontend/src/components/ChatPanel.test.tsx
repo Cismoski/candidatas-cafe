@@ -1,5 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import type { ChatMessage } from "../api/types";
 import { json, mockFetch, renderWithProviders, signIn } from "../test/utils";
 import { ChatPanel } from "./ChatPanel";
@@ -22,7 +23,7 @@ beforeEach(() => signIn());
 afterEach(() => vi.unstubAllGlobals());
 
 function show(onFocusPolygon = vi.fn()) {
-  renderWithProviders(<ChatPanel analysisId={ID} onFocusPolygon={onFocusPolygon} />);
+  renderWithProviders(<ChatPanel analysisId={ID} polygonIds={new Set([3, 40, 76])} onFocusPolygon={onFocusPolygon} />);
   return { onFocusPolygon, user: userEvent.setup() };
 }
 
@@ -105,6 +106,60 @@ it("cota esgotada mostra a mensagem da API e mantém a conversa", async () => {
   await user.click(await screen.findByRole("button", { name: "Qual é o maior polígono?" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("30 perguntas por dia");
   expect(screen.getByText(/90 polígonos candidatos/)).toBeInTheDocument();
+  expect(screen.getByText(/0 perguntas restantes hoje/)).toBeInTheDocument();
+});
+
+it("contador de cota aparece antes da primeira pergunta; com cota zerada não envia", async () => {
+  mockFetch({ [`GET ${PATH}`]: () => json({ messages: [INTRO], remaining_today: 0 }) });
+  const { user } = show();
+  const input = await screen.findByLabelText("Pergunte sobre esta análise");
+  expect(screen.getByText(/0 perguntas restantes hoje/)).toBeInTheDocument();
+  await user.type(input, "qual a área?");
+  expect(screen.getByRole("button", { name: "Perguntar" })).toBeDisabled();
+});
+
+function WithTabs() {
+  const [chat, setChat] = useState(true);
+  return (
+    <>
+      <button type="button" onClick={() => setChat((v) => !v)}>
+        trocar aba
+      </button>
+      {chat && <ChatPanel analysisId={ID} polygonIds={new Set()} onFocusPolygon={() => {}} />}
+    </>
+  );
+}
+
+it("pergunta em andamento sobrevive à troca de aba e não pode ser reenviada", async () => {
+  let release: (r: Response) => void = () => {};
+  const { calls } = mockFetch({
+    [`GET ${PATH}`]: () => json({ messages: [INTRO], remaining_today: 5 }),
+    [`POST ${PATH}`]: () => new Promise<Response>((r) => (release = r)),
+  });
+  renderWithProviders(<WithTabs />);
+  const user = userEvent.setup();
+  const input = await screen.findByLabelText("Pergunte sobre esta análise");
+  await user.type(input, "qual a área?{Enter}");
+  expect(input).toHaveFocus(); // readOnly, não disabled: o foco fica no campo
+  expect(input).toHaveAttribute("aria-busy", "true");
+  // sai e volta para a aba: o painel é desmontado e montado de novo
+  await user.click(screen.getByRole("button", { name: "trocar aba" }));
+  await user.click(screen.getByRole("button", { name: "trocar aba" }));
+  expect(await screen.findByText("Respondendo…")).toBeInTheDocument();
+  expect(within(screen.getByRole("log")).getByText("qual a área?")).toBeInTheDocument();
+  await user.type(screen.getByLabelText("Pergunte sobre esta análise"), "de novo{Enter}");
+  expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
+  release(
+    json({
+      messages: [
+        msg({ id: 1, role: "user", content: "qual a área?", source: null }),
+        msg({ id: 2, content: "155,31 ha." }),
+      ],
+      remaining_today: 4,
+    }),
+  );
+  expect(await screen.findByText(/4 perguntas restantes hoje/)).toBeInTheDocument();
+  expect(screen.queryByText("Respondendo…")).toBeNull();
 });
 
 it("'nº 76' na resposta foca o polígono no mapa", async () => {
@@ -116,6 +171,17 @@ it("'nº 76' na resposta foca o polígono no mapa", async () => {
   expect(onFocusPolygon).toHaveBeenCalledWith(76);
   await user.click(screen.getByRole("button", { name: "Mostrar polígono 3 no mapa" }));
   expect(onFocusPolygon).toHaveBeenLastCalledWith(3);
+});
+
+it("variações de 'nº' viram link; id inexistente continua texto", async () => {
+  mockFetch({
+    [`GET ${PATH}`]: () =>
+      json({ messages: [msg({ content: "Veja o n° 40 e o nº. 3; não existe nº 1000." })], remaining_today: null }),
+  });
+  show();
+  expect(await screen.findByRole("button", { name: "Mostrar polígono 40 no mapa" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Mostrar polígono 3 no mapa" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Mostrar polígono 1000 no mapa" })).toBeNull();
 });
 
 it("conteúdo do modelo é texto, nunca HTML", async () => {
