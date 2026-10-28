@@ -152,6 +152,8 @@ def build_context(summary: dict, question: str = "", history: Iterable[str] = ()
     }
     if m["mode"] == "two_dates":
         ctx["temporal"] = {
+            "variacao_sazonal_ndvi_descontada": m.get("temporal_ndvi_shift"),
+            "limite_variacao_ndvi": m["parameters"].get("temporal", {}).get("max_abs_ndvi_change"),
             "rejeitada_por_mudanca_ha": r["temporal_rejected_ha"],
             "sem_verificacao_ha": r["temporal_unverified_ha"],
         }
@@ -424,10 +426,16 @@ def automatic_answer(question: str, summary: dict) -> str:
     if re.search(r"segunda|temporal|outra data|duas datas|estabil", q):
         if m["mode"] != "two_dates":
             return "Só uma data foi enviada, então a estabilidade temporal não foi verificada."
+        shift = m.get("temporal_ndvi_shift")
+        seasonal = (
+            f" A variação sazonal da vegetação da cena ({_num(shift, 3)} no NDVI) foi descontada antes."
+            if shift is not None
+            else ""
+        )
         return (
             f"A segunda data ({_date_br((inp.get('secondary') or {}).get('acquired_utc'))}) rejeitou "
             f"{_ha(r['temporal_rejected_ha'])} por mudança de NDVI; {_ha(r['temporal_unverified_ha'])} "
-            "ficaram sem verificação por nuvem ou falta de cobertura."
+            f"ficaram sem verificação por nuvem ou falta de cobertura.{seasonal}"
         )
     for idx in ("ndvi", "ndwi", "savi"):
         if idx in q:

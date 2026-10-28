@@ -188,6 +188,65 @@ def test_no_temporal_reports_zero_unverified(cfg):
     assert run(cfg, ndvi).temporal_unverified_px == 0
 
 
+# --- regra temporal: desconto da variação sazonal --------------------------------------
+def _seasonal(cfg, *, base_other=0.8, block_other=0.6):
+    """50x50 px de vegetação intermediária (0,5) que sobe para base_other na outra data;
+    um bloco de 10x10 (NDVI 0,6) vai para block_other."""
+    ndvi = field(50, 50, value=0.5)
+    ndvi[20:30, 20:30] = 0.6
+    other = np.full_like(ndvi, base_other)
+    other[20:30, 20:30] = block_other
+    return run(cfg, ndvi, other=other)
+
+
+def test_seasonal_shift_keeps_greening_and_rejects_relative_change(cfg):
+    """Toda a cena sobe +0,3 (chuva): isso não é mudança. O bloco que ficou parado
+    (Δ 0, ou seja -0,3 em relação à cena) é que mudou."""
+    res = _seasonal(cfg)
+    assert res.temporal_ndvi_shift == pytest.approx(0.3, abs=1e-6)
+    assert res.temporal_shift_px == 2500
+    assert res.temporal_rejected_px == 100
+    assert n_candidates(res) == 2500 - 100
+
+
+def test_without_normalization_the_season_rejects_everything_but_the_block(cfg_copy):
+    """Contraprova: a regra antiga (Δ bruto) rejeita o que reverdeceu e mantém o bloco."""
+    cfg_copy.temporal.seasonal_normalization = False
+    res = _seasonal(cfg_copy)
+    assert res.temporal_ndvi_shift is None
+    assert n_candidates(res) == 100 and res.temporal_rejected_px == 2400
+
+
+@pytest.mark.parametrize(("min_px", "applied"), [(2500, True), (2501, False)])
+def test_bva_normalization_min_pixels(cfg_copy, min_px, applied):
+    cfg_copy.temporal.normalization_min_pixels = min_px
+    res = _seasonal(cfg_copy)
+    assert (res.temporal_ndvi_shift is not None) is applied
+
+
+def test_shift_ignores_pixels_without_second_date_and_non_vegetation(cfg):
+    ndvi = field(50, 50, value=0.5)
+    ndvi[:, :10] = LOW  # solo: fora da população
+    other = np.full_like(ndvi, 0.7)
+    other[:, :10] = 0.9  # se entrasse, puxaria a mediana
+    other[40:, :] = np.nan  # sem dado na segunda data
+    res = run(cfg, ndvi, other=other)
+    assert res.temporal_shift_px == 40 * 40
+    assert res.temporal_ndvi_shift == pytest.approx(0.2, abs=1e-6)
+
+
+@settings(max_examples=40, deadline=None)
+@given(st.floats(-0.04, 0.3))
+def test_property_uniform_seasonal_change_never_rejects(cfg, c):
+    """Qualquer variação igual para toda a vegetação é sazonal: nada é rejeitado
+    (desde que a outra data continue acima do piso de vegetação)."""
+    ndvi = field(50, 50, value=0.5)
+    ndvi[10:20, 10:20] = 0.55
+    other = ndvi + np.float32(c)
+    res = run(cfg, ndvi, other=other)
+    assert res.temporal_rejected_px == 0
+
+
 # --- limiar de dossel por Otsu (branches) -------------------------------------
 def test_otsu_splits_bimodal():
     rng = np.random.default_rng(0)

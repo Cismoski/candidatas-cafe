@@ -241,6 +241,15 @@ function Result({
               ? `${formatHa(r.temporal_rejected_ha)} rejeitados por mudança; ${formatHa(r.temporal_unverified_ha)} sem verificação (nuvem ou fora da cena)`
               : "não enviada"}
           </dd>
+          {twoDates && m.temporal_ndvi_shift != null && (
+            <>
+              <dt>Variação sazonal descontada (NDVI)</dt>
+              <dd>
+                {m.temporal_ndvi_shift > 0 ? "+" : ""}
+                {formatIndex(m.temporal_ndvi_shift)}, mediana da vegetação da cena entre as duas datas
+              </dd>
+            </>
+          )}
         </dl>
       </details>
 

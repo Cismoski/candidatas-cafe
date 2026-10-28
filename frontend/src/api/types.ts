@@ -90,6 +90,8 @@ export interface Summary {
     parameters: Record<string, unknown>;
     dense_canopy_ndvi_threshold: number;
     dense_canopy_threshold_source: string;
+    /** Variação sazonal do NDVI descontada na regra temporal; null = sem desconto */
+    temporal_ndvi_shift?: number | null;
     otsu_separability: number | null;
   };
   results: {

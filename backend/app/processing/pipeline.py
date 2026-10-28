@@ -38,6 +38,23 @@ LIMITATIONS = [
     "outras regiões ou datas podem exigir ajuste da configuração.",
 ]
 
+# Estação chuvosa no sul de MG (out-mar, aproximado). Medido em Guaxupé: na cena
+# de 17/02/2025, 76% dos pixels candidatos de 16/08/2025 caíram em "dossel
+# fechado" e a concordância entre as duas datas foi IoU 0,05. Na chuva o café
+# tem NDVI de mata e a regra "vigor intermediário" deixa de separá-lo.
+WET_MONTHS = {10, 11, 12, 1, 2, 3}
+WET_SEASON_WARNING = (
+    "Imagem da estação chuvosa: o café atinge NDVI de mata e tende a cair em dossel "
+    "fechado. O método foi ajustado para a seca (jun-set); prefira uma imagem da seca "
+    "como principal e use esta como segunda data."
+)
+
+
+def season_limitations(acquired_utc: str | None) -> list[str]:
+    if not acquired_utc or len(acquired_utc) < 7 or not acquired_utc[5:7].isdigit():
+        return []
+    return [WET_SEASON_WARNING] if int(acquired_utc[5:7]) in WET_MONTHS else []
+
 
 def _stats(values: npt.NDArray[np.float32]) -> dict | None:
     v = values[np.isfinite(values)]
@@ -236,6 +253,11 @@ def run_analysis(
             "otsu_separability": None
             if result.otsu_separability is None
             else round(result.otsu_separability, 3),
+            # Variação sazonal do NDVI descontada na regra temporal (None = sem desconto)
+            "temporal_ndvi_shift": None
+            if result.temporal_ndvi_shift is None
+            else round(result.temporal_ndvi_shift, 4),
+            "temporal_shift_pixels": result.temporal_shift_px,
         },
         "results": {
             "candidate_polygons": len(polygons),
@@ -261,9 +283,16 @@ def run_analysis(
         },
         "map": {"overlay_crs": "EPSG:3857", **overlay},
         "limitations": LIMITATIONS
+        + season_limitations(scene.acquired_utc)
         + ([] if scl_path else ["Sem SCL: nuvens e sombras não foram mascaradas explicitamente."])
         + (
-            [] if other_scene else ["Sem segunda data: a estabilidade temporal não foi verificada."]
+            [
+                "Duas datas: a variação sazonal é descontada pela mediana da vegetação da "
+                "cena; mudança que atinja a maior parte da vegetação (ex.: seca regional) "
+                "também é descontada, e pasto que reverdece junto com o café não é separado."
+            ]
+            if other_scene
+            else ["Sem segunda data: a estabilidade temporal não foi verificada."]
         ),
         "attribution": attribution,
     }

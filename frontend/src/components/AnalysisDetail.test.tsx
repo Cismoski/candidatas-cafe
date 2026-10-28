@@ -78,6 +78,22 @@ it("duas datas: coluna de NDVI da 2ª data e números temporais", () => {
   expect(screen.getByText(/3,50 ha rejeitados por mudança/)).toBeInTheDocument();
 });
 
+it("duas datas: mostra a variação sazonal descontada, com sinal", () => {
+  const s = makeSummary();
+  s.method.mode = "two_dates";
+  s.method.temporal_ndvi_shift = 0.1461;
+  show(makeAnalysis({ summary: s }));
+  expect(screen.getByText("Variação sazonal descontada (NDVI)")).toBeInTheDocument();
+  expect(screen.getByText(/\+0,15, mediana da vegetação/)).toBeInTheDocument();
+});
+
+it("uma data: não mostra variação sazonal", () => {
+  const s = makeSummary();
+  s.method.temporal_ndvi_shift = null;
+  show(makeAnalysis({ summary: s }));
+  expect(screen.queryByText("Variação sazonal descontada (NDVI)")).toBeNull();
+});
+
 it("limitações do processamento aparecem (não escondidas)", () => {
   show(makeAnalysis());
   expect(screen.getByText("Limitações (2)")).toBeInTheDocument();

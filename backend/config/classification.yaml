@@ -57,6 +57,13 @@ temporal:
   ndvi_min_other: 0.45
   # ...e não pode variar demais (cultura anual, pastagem, desmatamento).
   max_abs_ndvi_change: 0.25
+  # Antes de comparar com o limite acima, desconta a variação sazonal: a mediana
+  # do ΔNDVI da vegetação da cena (NDVI >= ndvi_min na data principal, válida nas
+  # duas datas). Medido em Guaxupé: ago/2025 -> fev/2025 a vegetação sobe +0,15
+  # em mediana e as candidatas +0,29; sem desconto a regra rejeitava 65% delas.
+  seasonal_normalization: true
+  # Abaixo disso (pixels de vegetação) a mediana não é estável: sem desconto.
+  normalization_min_pixels: 1000
   # Na segunda data (sem SCL), azul acima disso é tratado como nuvem (NoData).
   cloud_blue_min: 0.20
   # Fração mínima da cena principal coberta pela segunda data / pela SCL.

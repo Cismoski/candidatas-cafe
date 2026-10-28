@@ -150,6 +150,7 @@ def test_output_passes_upload_validation_and_runs_as_second_date(tile, tmp_path)
     # Contrato com os consumidores do summary (regressão: o pipeline gravava
     # "temporal" e o chat/frontend esperavam "two_dates": duas datas viravam uma)
     assert s["method"]["mode"] == "two_dates"
+    assert any("estação chuvosa" in lim for lim in s["limitations"])  # imagem de fevereiro
     assert chat.build_context(s)["metodo"]["modo"] == "duas datas"
     assert "Só uma data" not in chat.automatic_answer("e a segunda data?", s)
     assert "segunda data foi usada" in chat.introduction(s)

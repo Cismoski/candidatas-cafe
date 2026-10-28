@@ -310,3 +310,22 @@ def test_masked_pixels_are_not_counted_as_analysed(tmp_path, synthetic, cfg):
     assert r["class_areas"]["masked_quality"]["area_ha"] == pytest.approx(18.0)
     assert r["analysed_area_ha"] == pytest.approx((3600 - 25) * 0.01 - 18.0)
     assert r["input_coverage"]["scl"] == 1.0
+
+
+@pytest.mark.parametrize(
+    ("acquired", "warns"),
+    [
+        ("2025-08-16T13:28:10Z", False),
+        ("2025-09-30T00:00:00Z", False),  # limite: setembro ainda é seca
+        ("2025-10-01T00:00:00Z", True),  # limite: outubro já é chuva
+        ("2025-02-17T13:28:13Z", True),
+        ("2025-03-31T23:59:59Z", True),
+        ("2025-04-01T00:00:00Z", False),
+        (None, False),
+        ("2025", False),
+    ],
+)
+def test_wet_season_warning_bva(acquired, warns):
+    from app.processing.pipeline import WET_SEASON_WARNING, season_limitations
+
+    assert (WET_SEASON_WARNING in season_limitations(acquired)) is warns

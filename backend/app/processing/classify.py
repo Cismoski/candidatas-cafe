@@ -53,6 +53,8 @@ class Classification:
     otsu_separability: float | None
     temporal_unverified_px: int  # candidatos sem dado válido na segunda data
     temporal_rejected_px: int  # vegetação intermediária rejeitada pela regra temporal
+    temporal_ndvi_shift: float | None = None  # variação sazonal descontada (None = sem desconto)
+    temporal_shift_px: int = 0  # pixels de vegetação usados na mediana
 
 
 def otsu_threshold(values: F32, lo: float, hi: float, bins: int = 256) -> tuple[float, float]:
@@ -171,14 +173,26 @@ def classify(
         near_core = np.zeros_like(core)
     candidate = intermediate & ~near_core
 
-    other_ok, rejected = None, 0
+    other_ok, rejected, shift, shift_px = None, 0, None, 0
     if other_ndvi is not None:
-        # Café é perene: continua vegetado na outra data e varia pouco. Não
-        # comparamos com o limiar de dossel da data principal: na chuva o café
-        # sobe de NDVI (ex.: 0,58 -> 0,78) e seria descartado por engano.
+        # Café é perene: continua vegetado na outra data e varia pouco EM
+        # RELAÇÃO À VEGETAÇÃO DA CENA. Entre seca e chuva toda a vegetação sobe
+        # de NDVI; comparar o Δ bruto com um limite fixo descartava café por
+        # sazonalidade (medido: 65% das candidatas de ago/2025 contra fev/2025).
+        # Por isso o Δ de cada pixel é comparado com o Δ mediano da vegetação.
+        # A mediana é robusta às próprias candidatas (fração pequena da
+        # vegetação); se elas forem a maior parte da cena, o desconto absorveria
+        # a mudança delas, e isso está nas limitações.
         other_ok = np.isfinite(other_ndvi)
+        delta = other_ndvi - ndvi
+        if t.seasonal_normalization:
+            veg = land & (ndvi >= ndvi_min) & other_ok
+            shift_px = int(veg.sum())
+            if shift_px >= t.normalization_min_pixels:
+                shift = float(np.median(delta[veg]))
+        offset = np.float32(shift or 0.0)
         persistent = (other_ndvi >= np.float32(t.ndvi_min_other)) & (
-            np.abs(other_ndvi - ndvi) <= np.float32(t.max_abs_ndvi_change)
+            np.abs(delta - offset) <= np.float32(t.max_abs_ndvi_change)
         )
         # Sem dado na segunda data (nuvem mascarada) => a regra não se aplica.
         keep = persistent | ~other_ok
@@ -201,4 +215,6 @@ def classify(
         otsu_separability=eta,
         temporal_rejected_px=rejected,
         temporal_unverified_px=0 if other_ok is None else int((final & ~other_ok).sum()),
+        temporal_ndvi_shift=shift,
+        temporal_shift_px=shift_px,
     )
