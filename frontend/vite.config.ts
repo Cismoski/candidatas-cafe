@@ -13,7 +13,7 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       include: ["src/**/*.{ts,tsx}", "scripts/**/*.ts"],
-      exclude: ["src/test/**", "src/main.tsx", "src/map/MapView.tsx", "**/*.test.*", "scripts/write-headers.ts"],
+      exclude: ["src/test/**", "src/main.tsx", "**/*.test.*", "scripts/write-headers.ts"],
     },
   },
 });

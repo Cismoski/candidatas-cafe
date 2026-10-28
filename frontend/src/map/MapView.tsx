@@ -56,6 +56,9 @@ export type ViewBounds = [number, number, number, number];
 
 setWorkerUrl(workerUrl);
 
+/** Estilo vazio: se o mapa base cair, os resultados ainda aparecem sobre fundo liso. */
+const BLANK_STYLE = { version: 8 as const, sources: {}, layers: [] };
+
 const EMPTY_FC: FeatureCollection = { type: "FeatureCollection", features: [] };
 const IMAGE_LAYERS = { rgb: "overlay-rgb", classes: "overlay-classes" } as const;
 const POLY = "candidates";
@@ -70,8 +73,10 @@ export function MapView(props: MapViewProps) {
   onSelect.current = props.onSelectPolygon;
   const onView = useRef(props.onViewChange);
   onView.current = props.onViewChange;
+  const layersRef = useRef(layers);
+  layersRef.current = layers;
   const [ready, setReady] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [problem, setProblem] = useState<"webgl" | "basemap" | "overlay" | null>(null);
 
   // Criação única do mapa
   useEffect(() => {
@@ -88,7 +93,7 @@ export function MapView(props: MapViewProps) {
         cooperativeGestures: false,
       });
     } catch {
-      setFailed(true); // sem WebGL
+      setProblem("webgl");
       return;
     }
     mapRef.current = map;
@@ -102,7 +107,10 @@ export function MapView(props: MapViewProps) {
     };
     map.on("moveend", emitView);
     map.on("resize", emitView);
-    map.on("load", () => {
+    let setUp = false;
+    const setup = () => {
+      if (setUp) return;
+      setUp = true;
       emitView();
       map.addSource(POLY, { type: "geojson", data: EMPTY_FC, promoteId: "id" });
       map.addLayer({
@@ -135,9 +143,20 @@ export function MapView(props: MapViewProps) {
         map.getCanvas().style.cursor = "";
       });
       setReady(true);
+    };
+    map.on("load", setup);
+    // Mapa base (OpenFreeMap) fora do ar ou bloqueado: sem o "load" nada da
+    // análise seria desenhado. Troca por um estilo vazio e avisa.
+    map.on("error", () => {
+      if (setUp) return; // erro de tile depois de pronto: o MapLibre já tolera
+      setProblem("basemap");
+      map.setStyle(BLANK_STYLE);
+      map.once("style.load", setup);
     });
     return () => {
-      popupRef.current?.remove();
+      const popup = popupRef.current;
+      popupRef.current = null;
+      popup?.remove();
       map.remove();
       mapRef.current = null;
       bitmapsRef.current.rgb?.close();
@@ -147,25 +166,44 @@ export function MapView(props: MapViewProps) {
     // o mapa é criado uma única vez; props.interactive é lida só na montagem
   }, []);
 
-  // Sobreposições raster
+  // Sobreposições raster. Decodifica tudo primeiro e só mexe no mapa se esta
+  // execução ainda for a atual: uma execução cancelada (troca rápida de
+  // análise) não pode remover camadas nem fechar bitmaps da execução nova.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
     let cancelled = false;
-    const sync = async (kind: keyof typeof IMAGE_LAYERS, blob: Blob | null) => {
+    const decode = (b: Blob | null) => (b && coordinates ? createImageBitmap(b) : Promise.resolve(null));
+    void Promise.all([decode(rgb), decode(classes)])
+      .then(([rgbBitmap, classesBitmap]) => {
+        if (cancelled) {
+          rgbBitmap?.close();
+          classesBitmap?.close();
+          return;
+        }
+        place(map, "rgb", rgbBitmap);
+        place(map, "classes", classesBitmap);
+        applyVisibility(map, layersRef.current);
+        setProblem((p) => (p === "overlay" ? null : p));
+      })
+      .catch(() => {
+        if (!cancelled) setProblem("overlay");
+      });
+    return () => {
+      cancelled = true;
+    };
+
+    function place(m: MLMap, kind: keyof typeof IMAGE_LAYERS, bitmap: ImageBitmap | null) {
       const id = IMAGE_LAYERS[kind];
-      if (map.getLayer(id)) map.removeLayer(id);
-      if (map.getSource(id)) map.removeSource(id);
+      if (m.getLayer(id)) m.removeLayer(id);
+      if (m.getSource(id)) m.removeSource(id);
       // o bitmap anterior só é liberado depois que nenhuma source o usa
       bitmapsRef.current[kind]?.close();
-      bitmapsRef.current[kind] = undefined;
-      if (!blob || !coordinates) return;
-      const bitmap = await createImageBitmap(blob);
-      if (cancelled) return bitmap.close();
-      bitmapsRef.current[kind] = bitmap;
-      map.addSource(id, { type: "image", coordinates } as ImageSourceSpecification);
-      (map.getSource(id) as ImageSource).updateImage({ image: bitmap });
-      map.addLayer(
+      bitmapsRef.current[kind] = bitmap ?? undefined;
+      if (!bitmap || !coordinates) return;
+      m.addSource(id, { type: "image", coordinates } as ImageSourceSpecification);
+      (m.getSource(id) as ImageSource).updateImage({ image: bitmap });
+      m.addLayer(
         {
           id,
           type: "raster",
@@ -179,16 +217,8 @@ export function MapView(props: MapViewProps) {
         },
         `${POLY}-fill`,
       );
-    };
-    void (async () => {
-      await sync("rgb", rgb);
-      await sync("classes", classes);
-      applyVisibility(map, layers);
-    })().catch(() => setFailed(true));
-    return () => {
-      cancelled = true;
-    };
-    // a visibilidade tem efeito próprio; este só reage aos dados
+    }
+    // a visibilidade tem efeito próprio (e é lida do ref aqui); este só reage aos dados
   }, [ready, rgb, classes, coordinates]);
 
   // Polígonos
@@ -209,11 +239,8 @@ export function MapView(props: MapViewProps) {
       [Math.max(...lons), Math.max(...lats)],
     ];
     map.resize(); // o container pode ter mudado de tamanho desde a criação
-    // à esquerda, espaço para a legenda aberta (sobre o mapa), se couber
-    const width = map.getContainer().clientWidth;
-    const legend = width >= 900 ? 300 : 32;
     map.fitBounds(bounds, {
-      padding: { top: 32, bottom: 32, right: 32, left: legend },
+      padding: { top: 32, bottom: 32, right: 32, left: legendPadding(map) },
       duration: reducedMotion() ? 0 : 600,
     });
     // só ao trocar de análise: não "puxa" o mapa a cada refetch
@@ -228,13 +255,17 @@ export function MapView(props: MapViewProps) {
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
-    popupRef.current?.remove();
+    // Zera o ref ANTES de remover: remove() dispara "close", que não pode
+    // ser confundido com o usuário fechando o popup.
+    const previous = popupRef.current;
+    popupRef.current = null;
+    previous?.remove();
     map.setFilter(`${POLY}-focus`, ["==", ["get", "id"], focusPolygon ?? -1]);
     if (focusPolygon == null || !polygons) return;
     const feature = polygons.features.find((f: FeatureCollection["features"][number]) => f.properties?.id === focusPolygon);
     if (!feature) return;
     const p = feature.properties as PolygonStats;
-    const popup = new Popup({ closeButton: true, maxWidth: "260px", focusAfterOpen: false })
+    const popup = new Popup({ closeButton: true, closeOnClick: false, maxWidth: "260px", focusAfterOpen: false })
       .setLngLat([p.point_lon, p.point_lat])
       .setDOMContent(popupContent(p))
       .addTo(map);
@@ -242,23 +273,32 @@ export function MapView(props: MapViewProps) {
       if (popupRef.current === popup) onSelect.current?.(null);
     });
     popupRef.current = popup;
-    if (!map.getBounds().contains([p.point_lon, p.point_lat])) {
-      map.easeTo({ center: [p.point_lon, p.point_lat], duration: reducedMotion() ? 0 : 400 });
-    }
+    // Resposta a uma ação do usuário: centraliza o polígono na área livre (fora da legenda)
+    map.easeTo({
+      center: [p.point_lon, p.point_lat],
+      // offset (não padding: o padding do easeTo fica gravado na câmera)
+      offset: [legendPadding(map) / 2, 0],
+      duration: reducedMotion() ? 0 : 400,
+    });
   }, [ready, focusPolygon, polygons]);
 
   return (
     <div className="map-canvas">
       <div ref={container} className="map-canvas__gl" aria-label="Mapa da análise" role="region" />
-      {failed && (
-        <p className="map-canvas__fail">
-          O mapa não pôde ser desenhado neste navegador (WebGL indisponível). Os números e downloads
-          continuam valendo.
+      {problem && (
+        <p className="map-canvas__fail" role="status">
+          {PROBLEM_TEXT[problem]}
         </p>
       )}
     </div>
   );
 }
+
+const PROBLEM_TEXT = {
+  webgl: "O mapa não pôde ser desenhado neste navegador (WebGL indisponível). Os números e downloads continuam valendo.",
+  basemap: "O mapa de fundo está indisponível agora; a imagem e os polígonos aparecem sobre fundo liso.",
+  overlay: "Não foi possível desenhar a imagem sobre o mapa. Os polígonos, números e downloads continuam valendo.",
+} as const;
 
 function applyVisibility(map: MLMap, layers: Layers) {
   const set = (id: string, on: boolean) => {
@@ -295,6 +335,11 @@ function popupContent(p: PolygonStats): HTMLElement {
   }
   root.append(h, area, dl);
   return root;
+}
+
+/** À esquerda, espaço para a legenda aberta (que fica sobre o mapa), se couber. */
+function legendPadding(map: MLMap): number {
+  return map.getContainer().clientWidth >= 900 ? 300 : 32;
 }
 
 function reducedMotion(): boolean {

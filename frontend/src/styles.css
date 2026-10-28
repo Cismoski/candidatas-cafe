@@ -421,9 +421,13 @@ input {
 
 .map-canvas__fail {
   position: absolute;
-  inset: auto 1rem 1rem;
+  inset: auto 3.5rem 2.5rem 1rem;
+  max-width: 32rem;
+  padding: 0.5rem 0.75rem;
   font-size: var(--t-14);
-  color: var(--ink-2);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--ink);
 }
 
 /* --- legenda ------------------------------------------------------------------ */
@@ -902,7 +906,7 @@ details.block p,
   border-bottom: 1px solid var(--line);
 }
 
-.polys tr[aria-selected="true"] td {
+.polys tr[data-focused] td {
   background: rgb(250 190 20 / 0.25);
 }
 
