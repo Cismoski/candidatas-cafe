@@ -5,7 +5,10 @@ import { API, makeAnalysis, makeSummary, mockFetch, renderWithProviders, signIn 
 import { AnalysisDetail } from "./AnalysisDetail";
 
 beforeEach(() => signIn());
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 function show(a: Analysis, extra: Partial<Parameters<typeof AnalysisDetail>[0]> = {}) {
   const props = {
@@ -20,10 +23,11 @@ function show(a: Analysis, extra: Partial<Parameters<typeof AnalysisDetail>[0]> 
   return props;
 }
 
-it("na fila e processando mostram progresso, sem números", () => {
+it("na fila mostra progresso, sem números nem downloads", () => {
   show(makeAnalysis({ status: "pending", summary: null }));
   expect(screen.getByRole("status")).toHaveTextContent("fila");
-  expect(screen.queryByText(/ha/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/\d ha/)).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /GeoJSON/ })).not.toBeInTheDocument();
 });
 
 it("processando explica as etapas", () => {
@@ -84,8 +88,11 @@ it("download autenticado salva o arquivo com nome", async () => {
   const { calls } = mockFetch({
     [`GET /analyses/${makeAnalysis().id}/files/geojson`]: () => new Response('{"type":"FeatureCollection"}'),
   });
-  const createObjectURL = vi.fn(() => "blob:x");
-  vi.stubGlobal("URL", Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() }));
+  // jsdom não implementa createObjectURL; spies são restaurados no fim do teste
+  URL.createObjectURL ??= () => "";
+  URL.revokeObjectURL ??= () => {};
+  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:x");
+  vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
   const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
   show(makeAnalysis());
   await userEvent.click(screen.getByRole("button", { name: "Polígonos (GeoJSON)" }));
@@ -105,4 +112,22 @@ it("apagar pede confirmação na própria tela", async () => {
   await userEvent.click(screen.getByRole("button", { name: "Apagar" }));
   await waitFor(() => expect(p.onDeleted).toHaveBeenCalled());
   expect(calls[0]?.method).toBe("DELETE");
+});
+
+it("abas: setas trocam a aba e movem o foco (padrão WAI-ARIA)", async () => {
+  show(makeAnalysis());
+  const result = screen.getByRole("tab", { name: "Resultado" });
+  const chat = screen.getByRole("tab", { name: "Assistente" });
+  expect(result).toHaveAttribute("tabindex", "0");
+  expect(chat).toHaveAttribute("tabindex", "-1");
+  expect(screen.getByRole("tabpanel")).toHaveAttribute("aria-labelledby", "tab-result");
+  result.focus();
+  await userEvent.keyboard("{ArrowRight}");
+  expect(chat).toHaveFocus();
+  expect(chat).toHaveAttribute("aria-selected", "true");
+  expect(screen.getByRole("tabpanel")).toHaveAttribute("id", "panel-chat");
+  await userEvent.keyboard("{ArrowRight}"); // volta ao início
+  expect(result).toHaveFocus();
+  await userEvent.keyboard("{End}");
+  expect(chat).toHaveFocus();
 });

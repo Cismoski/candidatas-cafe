@@ -25,7 +25,9 @@ export function UploadForm({ onCreated, onCancel }: { onCreated: (a: Analysis) =
   const [loadingSample, setLoadingSample] = useState(false);
   // Uma chave por conjunto de arquivos: reenviar o MESMO formulário após uma
   // falha de rede reaproveita a chave e o backend não duplica a análise.
-  const idemKey = useRef(crypto.randomUUID());
+  // (título incluído: editar o nome é outra submissão)
+  const idemKey = useRef("");
+  if (!idemKey.current) idemKey.current = crypto.randomUUID();
   const create = useCreateAnalysis();
 
   const setSlot = async (slot: Slot, file: File | null) => {
@@ -94,7 +96,7 @@ export function UploadForm({ onCreated, onCancel }: { onCreated: (a: Analysis) =
       <div className="upload__head">
         <h2 className="upload__title">Nova análise</h2>
         {onCancel && (
-          <button type="button" className="btn btn--quiet" onClick={onCancel}>
+          <button type="button" className="btn btn--quiet" onClick={onCancel} disabled={busy}>
             Fechar
           </button>
         )}
@@ -111,7 +113,10 @@ export function UploadForm({ onCreated, onCancel }: { onCreated: (a: Analysis) =
           value={title}
           maxLength={80}
           disabled={busy}
-          onChange={(e) => setTitle(e.target.value)}
+          onChange={(e) => {
+            setTitle(e.target.value);
+            idemKey.current = crypto.randomUUID();
+          }}
           placeholder="Ex.: Fazenda Boa Vista, agosto"
         />
       </label>
@@ -202,7 +207,13 @@ function DropSlot({
         type="file"
         accept=".tif,.tiff,image/tiff"
         disabled={disabled}
-        onChange={(e) => onChange(e.target.files?.[0] ?? null)}
+        onChange={(e) => {
+          const f = e.target.files?.[0] ?? null;
+          // O arquivo fica no estado do React; limpar o input permite escolher
+          // o mesmo arquivo de novo depois de uma rejeição.
+          e.target.value = "";
+          onChange(f);
+        }}
       />
     </div>
   );

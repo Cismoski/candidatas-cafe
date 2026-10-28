@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { type KeyboardEvent, useId, useRef, useState } from "react";
 import type { Analysis, DownloadName, Summary } from "../api/types";
 import { useDeleteAnalysis } from "../api/queries";
 import { useAuth } from "../auth/AuthProvider";
 import { saveBlob } from "../lib/files";
 import { formatExpiry, formatHa, formatIndex, formatInt, formatPct } from "../lib/format";
+import { useNow } from "../lib/useNow";
 import { STATUS_LABEL } from "./AnalysisList";
 import { ErrorNote } from "./ErrorNote";
 
@@ -16,7 +17,8 @@ interface Props {
 }
 
 export function AnalysisDetail({ analysis, focusPolygon, onFocusPolygon, onDeleted, onNew }: Props) {
-  const [tab, setTab] = useState<"result" | "chat">("result");
+  const [tab, setTab] = useState<Tab>("result");
+  const now = useNow();
   return (
     <article className="detail" aria-labelledby="detail-title">
       <header className="detail__head">
@@ -27,7 +29,7 @@ export function AnalysisDetail({ analysis, focusPolygon, onFocusPolygon, onDelet
           <span className="runs__status" data-status={analysis.status}>
             {STATUS_LABEL[analysis.status]}
           </span>{" "}
-          {formatExpiry(analysis.expires_at)}
+          {formatExpiry(analysis.expires_at, now)}
         </p>
       </header>
 
@@ -47,23 +49,18 @@ export function AnalysisDetail({ analysis, focusPolygon, onFocusPolygon, onDelet
       )}
       {analysis.status === "done" && analysis.summary && (
         <>
-          <div className="tabs" role="tablist" aria-label="Resultado ou assistente">
-            <button type="button" role="tab" aria-selected={tab === "result"} onClick={() => setTab("result")}>
-              Resultado
-            </button>
-            <button type="button" role="tab" aria-selected={tab === "chat"} onClick={() => setTab("chat")}>
-              Assistente
-            </button>
-          </div>
+          <Tabs value={tab} onChange={setTab} />
           {tab === "result" ? (
+            <div className="detail__body" role="tabpanel" id="panel-result" aria-labelledby="tab-result">
             <Result
               id={analysis.id}
               summary={analysis.summary}
               focusPolygon={focusPolygon}
               onFocusPolygon={onFocusPolygon}
             />
+            </div>
           ) : (
-            <div className="detail__body" role="tabpanel">
+            <div className="detail__body" role="tabpanel" id="panel-chat" aria-labelledby="tab-chat">
               <p className="note">
                 O assistente vai apresentar esta classificação e responder perguntas usando apenas os números
                 deste processamento. Disponível na próxima versão.
@@ -75,6 +72,56 @@ export function AnalysisDetail({ analysis, focusPolygon, onFocusPolygon, onDelet
 
       <DeleteAnalysis id={analysis.id} onDeleted={onDeleted} />
     </article>
+  );
+}
+
+type Tab = "result" | "chat";
+const TABS: { id: Tab; label: string }[] = [
+  { id: "result", label: "Resultado" },
+  { id: "chat", label: "Assistente" },
+];
+
+/** Abas no padrão WAI-ARIA: Tab entra na aba ativa, setas/Home/End trocam. */
+function Tabs({ value, onChange }: { value: Tab; onChange: (t: Tab) => void }) {
+  const refs = useRef<Record<Tab, HTMLButtonElement | null>>({ result: null, chat: null });
+  const label = useId();
+  const onKey = (e: KeyboardEvent) => {
+    const i = TABS.findIndex((t) => t.id === value);
+    const next =
+      e.key === "ArrowRight" ? (i + 1) % TABS.length
+      : e.key === "ArrowLeft" ? (i - 1 + TABS.length) % TABS.length
+      : e.key === "Home" ? 0
+      : e.key === "End" ? TABS.length - 1
+      : null;
+    if (next === null) return;
+    e.preventDefault();
+    const t = (TABS[next] as (typeof TABS)[number]).id;
+    onChange(t);
+    refs.current[t]?.focus();
+  };
+  return (
+    <div className="tabs" role="tablist" aria-labelledby={label} onKeyDown={onKey}>
+      <span id={label} hidden>
+        Resultado ou assistente
+      </span>
+      {TABS.map((t) => (
+        <button
+          key={t.id}
+          ref={(el) => {
+            refs.current[t.id] = el;
+          }}
+          type="button"
+          role="tab"
+          id={`tab-${t.id}`}
+          aria-controls={`panel-${t.id}`}
+          aria-selected={value === t.id}
+          tabIndex={value === t.id ? 0 : -1}
+          onClick={() => onChange(t.id)}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -106,7 +153,7 @@ function Result({
   const twoDates = m.mode === "two_dates";
 
   return (
-    <div className="detail__body" role="tabpanel">
+    <>
       {r.candidate_polygons > 0 ? (
         <p className="figure">
           <span className="figure__value">{formatHa(r.candidate_area_ha)}</span>
@@ -148,11 +195,12 @@ function Result({
             </thead>
             <tbody>
               {largest.map((p) => (
-                <tr key={p.id} aria-selected={p.id === focusPolygon}>
+                <tr key={p.id} data-focused={p.id === focusPolygon || undefined}>
                   <td>
                     <button
                       type="button"
                       className="btn btn--link"
+                      aria-pressed={p.id === focusPolygon}
                       onClick={() => onFocusPolygon(p.id === focusPolygon ? null : p.id)}
                       aria-label={`Mostrar polígono ${p.id} no mapa`}
                     >
@@ -202,7 +250,7 @@ function Result({
           ))}
         </ul>
       </details>
-    </div>
+    </>
   );
 }
 

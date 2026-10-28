@@ -15,9 +15,9 @@ from slowapi.middleware import SlowAPIASGIMiddleware
 from app.ratelimit import RateLimitMiddleware
 
 
-def _app(middleware) -> FastAPI:
+def _app(middleware, limit: str = "100/minute") -> FastAPI:
     app = FastAPI()
-    app.state.limiter = Limiter(key_func=lambda *_: "ip", default_limits=["100/minute"])
+    app.state.limiter = Limiter(key_func=lambda *_: "ip", default_limits=[limit])
     app.add_middleware(middleware)
 
     @app.get("/big")
@@ -70,6 +70,20 @@ def test_single_response_start_with_chunked_body():
     assert types[0] == "http.response.start"
     body = b"".join(m.get("body", b"") for m in msgs if m["type"] == "http.response.body")
     assert body == b"a" * 10 + b"b" * 10 + b"c" * 10
+
+
+def test_429_path_still_single_start():
+    app = _app(RateLimitMiddleware, limit="1/minute")
+    from slowapi.errors import RateLimitExceeded
+    from starlette.responses import JSONResponse
+
+    app.add_exception_handler(
+        RateLimitExceeded, lambda r, e: JSONResponse({"detail": "limite"}, status_code=429)
+    )
+    assert _messages(app)[0]["status"] == 200
+    msgs = _messages(app)
+    starts = [m for m in msgs if m["type"] == "http.response.start"]
+    assert len(starts) == 1 and starts[0]["status"] == 429
 
 
 @pytest.mark.parametrize("middleware", [SlowAPIASGIMiddleware])
