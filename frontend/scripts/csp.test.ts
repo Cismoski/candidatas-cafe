@@ -14,16 +14,22 @@ describe("CSP", () => {
     expect(csp).not.toContain("/v1");
   });
 
-  it("URL inválida não injeta nada", () => {
-    expect(apiOrigin("javascript:alert(1)")).toBe("null");
-    expect(apiOrigin("não é url")).toBe("");
-    expect(directive(buildCsp(""), "connect-src")).not.toContain("");
+  it.each([[""], ["não é url"], ["javascript:alert(1)"], ["http://api.exemplo.com"], ["ftp://x.com"]])(
+    "falha fechada para %j (o build para em vez de gerar CSP quebrada)",
+    (url) => {
+      expect(() => buildCsp(url)).toThrow(/VITE_API_URL/);
+    },
+  );
+
+  it.each([["http://localhost:8000"], ["http://127.0.0.1:8000"]])("http só para a máquina local: %s", (url) => {
+    expect(apiOrigin(url)).toBe(url);
   });
 
-  it("scripts só da própria origem e do Google Identity Services; nada de eval/inline", () => {
+  it("scripts só da própria origem e do Google Identity Services; nada de eval/inline/blob", () => {
     const csp = buildCsp("https://api.exemplo.com");
     expect(directive(csp, "script-src")).toEqual(["'self'", "https://accounts.google.com/gsi/client"]);
     expect(csp).not.toContain("unsafe-eval");
+    expect(csp).not.toContain("blob:");
     expect(directive(csp, "script-src")).not.toContain("'unsafe-inline'");
     expect(directive(csp, "frame-ancestors")).toEqual(["'none'"]);
     expect(directive(csp, "object-src")).toEqual(["'none'"]);
