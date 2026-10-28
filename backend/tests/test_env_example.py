@@ -11,8 +11,11 @@ FUTURE = {"gemini_api_key"}  # fase 4
 
 
 def _entries() -> dict[str, str]:
-    pairs = (l.strip().split("=", 1) for l in ENV_EXAMPLE.read_text().splitlines())
-    return {k.lower(): v for k, v in (p for p in pairs if len(p) == 2 and re.fullmatch(r"[A-Z_]+", p[0]))}
+    pairs = (line.strip().split("=", 1) for line in ENV_EXAMPLE.read_text().splitlines())
+    return {
+        k.lower(): v
+        for k, v in (p for p in pairs if len(p) == 2 and re.fullmatch(r"[A-Z_]+", p[0]))
+    }
 
 
 def test_env_example_exists_and_matches_settings():
