@@ -134,7 +134,7 @@ const FC: FeatureCollection = {
 const LAYERS = { rgb: true, classes: true, polygons: true, reference: false };
 
 // createImageBitmap controlável: cada chamada fica pendente até resolvermos
-type Pending = { blob: Blob; resolve: (b: ImageBitmap) => void };
+type Pending = { blob: Blob; resolve: (b: ImageBitmap) => void; reject: (e: Error) => void };
 let decodes: Pending[] = [];
 type FakeBitmap = ImageBitmap & { name: string; closed: boolean };
 function bitmap(name: string): FakeBitmap {
@@ -148,7 +148,7 @@ beforeEach(() => {
   decodes = [];
   vi.stubGlobal(
     "createImageBitmap",
-    (blob: Blob) => new Promise<ImageBitmap>((resolve) => decodes.push({ blob, resolve })),
+    (blob: Blob) => new Promise<ImageBitmap>((resolve, reject) => decodes.push({ blob, resolve, reject })),
   );
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -282,4 +282,27 @@ it("camada do MapBiomas entra abaixo dos polígonos e respeita o liga/desliga", 
   rerender(<MapView {...base} reference={base.reference} layers={{ ...LAYERS, reference: true }} />);
   await flush();
   expect(map.visibility["overlay-reference"]).toBe("visible");
+});
+
+it("falha ao decodificar a referência não esconde as outras camadas", async () => {
+  const { map } = setup({ rgb: new Blob(["r"]), classes: new Blob(["c"]), reference: new Blob(["m"]) });
+  const [r, c, m] = decodes;
+  m?.reject(new Error("png inválido"));
+  r?.resolve(bitmap("rgb"));
+  c?.resolve(bitmap("classes"));
+  await flush();
+  expect(map.layers).toEqual(["overlay-rgb", "overlay-classes", "candidates-fill", "candidates-line", "candidates-focus"]);
+  expect(screen.getByText(/camada do MapBiomas/)).toBeInTheDocument();
+  expect(screen.queryByText(/Não foi possível desenhar a imagem sobre o mapa/)).toBeNull();
+});
+
+it("referência que chega antes das outras ainda fica acima delas", async () => {
+  const { map } = setup({ rgb: new Blob(["r"]), classes: new Blob(["c"]), reference: new Blob(["m"]) });
+  const [r, c, m] = decodes;
+  m?.resolve(bitmap("ref"));
+  await flush();
+  r?.resolve(bitmap("rgb"));
+  c?.resolve(bitmap("classes"));
+  await flush();
+  expect(map.layers.slice(0, 3)).toEqual(["overlay-rgb", "overlay-classes", "overlay-reference"]);
 });

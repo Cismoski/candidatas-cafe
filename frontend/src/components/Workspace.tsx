@@ -85,7 +85,7 @@ export function Workspace() {
     retry: shouldRetry,
   });
   const summary = done ? analysis.summary : null;
-  const layerError = rgb.error ?? classes.error ?? polygons.error;
+  const layerError = rgb.error ?? classes.error ?? polygons.error ?? reference.error;
 
   const toggle = (k: keyof Layers) => setLayers((l) => ({ ...l, [k]: !l[k] }));
 

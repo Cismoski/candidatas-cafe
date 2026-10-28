@@ -80,7 +80,7 @@ export function MapView(props: MapViewProps) {
   const layersRef = useRef(layers);
   layersRef.current = layers;
   const [ready, setReady] = useState(false);
-  const [problem, setProblem] = useState<"webgl" | "basemap" | "overlay" | null>(null);
+  const [problem, setProblem] = useState<keyof typeof PROBLEM_TEXT | null>(null);
 
   // Criação única do mapa
   useEffect(() => {
@@ -177,17 +177,15 @@ export function MapView(props: MapViewProps) {
     if (!map || !ready) return;
     let cancelled = false;
     const decode = (b: Blob | null) => (b && coordinates ? createImageBitmap(b) : Promise.resolve(null));
-    void Promise.all([decode(rgb), decode(classes), decode(reference)])
-      .then(([rgbBitmap, classesBitmap, referenceBitmap]) => {
+    void Promise.all([decode(rgb), decode(classes)])
+      .then(([rgbBitmap, classesBitmap]) => {
         if (cancelled) {
           rgbBitmap?.close();
           classesBitmap?.close();
-          referenceBitmap?.close();
           return;
         }
-        place(map, "rgb", rgbBitmap);
-        place(map, "classes", classesBitmap);
-        place(map, "reference", referenceBitmap);
+        placeOverlay(map, "rgb", rgbBitmap, coordinates, bitmapsRef.current);
+        placeOverlay(map, "classes", classesBitmap, coordinates, bitmapsRef.current);
         applyVisibility(map, layersRef.current);
         setProblem((p) => (p === "overlay" ? null : p));
       })
@@ -197,34 +195,33 @@ export function MapView(props: MapViewProps) {
     return () => {
       cancelled = true;
     };
-
-    function place(m: MLMap, kind: keyof typeof IMAGE_LAYERS, bitmap: ImageBitmap | null) {
-      const id = IMAGE_LAYERS[kind];
-      if (m.getLayer(id)) m.removeLayer(id);
-      if (m.getSource(id)) m.removeSource(id);
-      // o bitmap anterior só é liberado depois que nenhuma source o usa
-      bitmapsRef.current[kind]?.close();
-      bitmapsRef.current[kind] = bitmap ?? undefined;
-      if (!bitmap || !coordinates) return;
-      m.addSource(id, { type: "image", coordinates } as ImageSourceSpecification);
-      (m.getSource(id) as ImageSource).updateImage({ image: bitmap });
-      m.addLayer(
-        {
-          id,
-          type: "raster",
-          source: id,
-          paint: {
-            "raster-opacity": kind === "rgb" ? 1 : 0.85,
-            // classes são categóricas: sem interpolação entre cores
-            "raster-resampling": kind === "rgb" ? "linear" : "nearest",
-            "raster-fade-duration": 0,
-          },
-        },
-        `${POLY}-fill`,
-      );
-    }
     // a visibilidade tem efeito próprio (e é lida do ref aqui); este só reage aos dados
-  }, [ready, rgb, classes, reference, coordinates]);
+  }, [ready, rgb, classes, coordinates]);
+
+  // Referência (MapBiomas) em efeito próprio: é opcional e chega depois (só quando
+  // ligada). Falhar nela não pode esconder as outras camadas, e ligá-la não pode
+  // redecodificar as outras.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    let cancelled = false;
+    void (reference && coordinates ? createImageBitmap(reference) : Promise.resolve(null))
+      .then((bitmap) => {
+        if (cancelled) {
+          bitmap?.close();
+          return;
+        }
+        placeOverlay(map, "reference", bitmap, coordinates, bitmapsRef.current);
+        applyVisibility(map, layersRef.current);
+        setProblem((p) => (p === "reference" ? null : p));
+      })
+      .catch(() => {
+        if (!cancelled) setProblem("reference");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, reference, coordinates]);
 
   // Polígonos
   useEffect(() => {
@@ -303,7 +300,47 @@ const PROBLEM_TEXT = {
   webgl: "O mapa não pôde ser desenhado neste navegador (WebGL indisponível). Os números e downloads continuam valendo.",
   basemap: "O mapa de fundo está indisponível agora; a imagem e os polígonos aparecem sobre fundo liso.",
   overlay: "Não foi possível desenhar a imagem sobre o mapa. Os polígonos, números e downloads continuam valendo.",
+  reference: "Não foi possível desenhar a camada do MapBiomas. A comparação no painel continua valendo.",
 } as const;
+
+/** Ordem de empilhamento das imagens (de baixo para cima), todas abaixo dos polígonos. */
+const STACK: (keyof typeof IMAGE_LAYERS)[] = ["rgb", "classes", "reference"];
+
+function placeOverlay(
+  m: MLMap,
+  kind: keyof typeof IMAGE_LAYERS,
+  bitmap: ImageBitmap | null,
+  coordinates: MapViewProps["coordinates"],
+  bitmaps: Partial<Record<keyof typeof IMAGE_LAYERS, ImageBitmap>>,
+) {
+  const id = IMAGE_LAYERS[kind];
+  if (m.getLayer(id)) m.removeLayer(id);
+  if (m.getSource(id)) m.removeSource(id);
+  // o bitmap anterior só é liberado depois que nenhuma source o usa
+  bitmaps[kind]?.close();
+  bitmaps[kind] = bitmap ?? undefined;
+  if (!bitmap || !coordinates) return;
+  m.addSource(id, { type: "image", coordinates } as ImageSourceSpecification);
+  (m.getSource(id) as ImageSource).updateImage({ image: bitmap });
+  // as camadas chegam em momentos diferentes: entra abaixo da próxima que já existir
+  const above = STACK.slice(STACK.indexOf(kind) + 1)
+    .map((k) => IMAGE_LAYERS[k])
+    .find((l) => m.getLayer(l));
+  m.addLayer(
+    {
+      id,
+      type: "raster",
+      source: id,
+      paint: {
+        "raster-opacity": kind === "rgb" ? 1 : 0.85,
+        // classes e referência são categóricas: sem interpolação entre cores
+        "raster-resampling": kind === "rgb" ? "linear" : "nearest",
+        "raster-fade-duration": 0,
+      },
+    },
+    above ?? `${POLY}-fill`,
+  );
+}
 
 function applyVisibility(map: MLMap, layers: Layers) {
   const set = (id: string, on: boolean) => {
