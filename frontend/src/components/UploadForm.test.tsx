@@ -1,7 +1,8 @@
+import { existsSync } from "node:fs";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { json, makeAnalysis, mockFetch, renderWithProviders, signIn } from "../test/utils";
-import { UploadForm } from "./UploadForm";
+import { SAMPLES, UploadForm } from "./UploadForm";
 
 const tif = (name = "cena.tif") => new File([new Uint8Array([0x49, 0x49, 0x2a, 0x00, 1, 2])], name);
 
@@ -98,15 +99,40 @@ it.each([
   expect(alert).toHaveTextContent(action);
 });
 
+const TIFF = () => new Response(new Uint8Array([0x49, 0x49, 0x2a, 0x00]));
+
 it("cena de exemplo preenche imagem principal e SCL", async () => {
-  mockFetch({
-    "GET /amostra/imagem_multiespectral.tif": () => new Response(new Uint8Array([0x49, 0x49, 0x2a, 0x00])),
-    "GET /amostra/qualidade_scl.tif": () => new Response(new Uint8Array([0x49, 0x49, 0x2a, 0x00])),
-  });
-  // fetch relativo no jsdom precisa de origem
+  mockFetch({ "GET /amostra/imagem_multiespectral.tif": TIFF, "GET /amostra/qualidade_scl.tif": TIFF });
   const { user } = setup();
-  await user.click(screen.getByRole("button", { name: /cena de exemplo/ }));
+  await user.click(screen.getByRole("button", { name: "16 ago 2025 (seca)" }));
   expect(await screen.findByText("imagem_multiespectral.tif")).toBeInTheDocument();
   expect(screen.getByText("qualidade_scl.tif")).toBeInTheDocument();
   expect(screen.getByLabelText("Nome da análise (opcional)")).toHaveValue("Guaxupé (MG), 16 ago 2025");
+});
+
+it("exemplo de duas datas preenche a segunda data; trocar de exemplo limpa o que sobra", async () => {
+  mockFetch({
+    "GET /amostra/imagem_multiespectral.tif": TIFF,
+    "GET /amostra/qualidade_scl.tif": TIFF,
+    "GET /amostra/s2b_20250217_segunda_data.tif": TIFF,
+    "GET /amostra/s2b_20250217_imagem.tif": TIFF,
+    "GET /amostra/s2b_20250217_scl.tif": TIFF,
+  });
+  const { user } = setup();
+  await user.click(screen.getByRole("button", { name: "Duas datas" }));
+  expect(await screen.findByText("s2b_20250217_segunda_data.tif")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "17 fev 2025 (chuva)" }));
+  expect(await screen.findByText("s2b_20250217_imagem.tif")).toBeInTheDocument();
+  expect(screen.queryByText("s2b_20250217_segunda_data.tif")).toBeNull();
+  expect(screen.getByLabelText("Nome da análise (opcional)")).toHaveValue("Guaxupé (MG), 17 fev 2025");
+});
+
+it("todo arquivo de exemplo existe em public/ e tem a atribuição ao lado", () => {
+  for (const s of SAMPLES) {
+    for (const url of Object.values(s.urls)) {
+      expect(existsSync(`public${url}`), url).toBe(true);
+    }
+  }
+  expect(existsSync("public/amostra/ATRIBUICAO.txt")).toBe(true);
+  expect(existsSync("public/amostra/s2b_20250217_ATRIBUICAO.txt")).toBe(true);
 });

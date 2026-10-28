@@ -1,0 +1,37 @@
+PROCEDÊNCIA DOS DADOS
+
+Contains modified Copernicus Sentinel data (2025).
+Modificações: recorte espacial na grade da imagem do kit e empilhamento das
+bandas B02, B03, B04 e B08 (DN original); recorte da SCL sem mudança de
+resolução. O arquivo *_segunda_data.tif tem DN 0 onde a SCL não é 4-7.
+Nenhuma classificação de café foi adicionada.
+
+Cena: S2B_T23KLS_20250217T132718_L2A.
+Aquisição: 2025-02-17T13:28:13.144000Z.
+Catálogo: Earth Search, Element 84, sentinel-2-c1-l2a.
+Acessado em 28/10/2026:
+https://earth-search.aws.element84.com/v1/collections/sentinel-2-c1-l2a/items/S2B_T23KLS_20250217T132718_L2A
+
+Arquivos de origem (COGs):
+  blue: https://e84-earth-search-sentinel-data.s3.us-west-2.amazonaws.com/sentinel-2-c1-l2a/23/K/LS/2025/2/S2B_T23KLS_20250217T132718_L2A/B02.tif
+  green: https://e84-earth-search-sentinel-data.s3.us-west-2.amazonaws.com/sentinel-2-c1-l2a/23/K/LS/2025/2/S2B_T23KLS_20250217T132718_L2A/B03.tif
+  red: https://e84-earth-search-sentinel-data.s3.us-west-2.amazonaws.com/sentinel-2-c1-l2a/23/K/LS/2025/2/S2B_T23KLS_20250217T132718_L2A/B04.tif
+  nir: https://e84-earth-search-sentinel-data.s3.us-west-2.amazonaws.com/sentinel-2-c1-l2a/23/K/LS/2025/2/S2B_T23KLS_20250217T132718_L2A/B08.tif
+  scl: https://e84-earth-search-sentinel-data.s3.us-west-2.amazonaws.com/sentinel-2-c1-l2a/23/K/LS/2025/2/S2B_T23KLS_20250217T132718_L2A/SCL.tif
+
+Termos de dados Sentinel indicados pela coleção de origem:
+https://sentinel.esa.int/documents/247904/690755/Sentinel_Data_Legal_Notice
+
+Verificação no recorte (gerada por scripts/baixar_cena.py):
+  pixels sem dado: 0.0%
+  pixels válidos pela SCL (classes 4-7): 100.0%
+  classes da SCL:
+  não classificado: 0.07%
+  solo exposto: 6.95%
+  vegetação: 92.98%
+  área escura/topografia: 0.0%
+
+SHA-256:
+  848761e2aebfc808f5b8745a781c6be4472f1c6bdc295629cce07479bd79736c  s2b_20250217_imagem.tif
+  fad3b06c50df4d65bcf3578662e9a107b031e5f1174c5094db7c6c3dd3d7aa48  s2b_20250217_scl.tif
+  6afcb36f0e918a6bc7628dff7f86e5d0dc443b5b5569c99ec8be5a77d7658736  s2b_20250217_segunda_data.tif

@@ -646,6 +646,19 @@ input {
   align-items: center;
 }
 
+.upload__samples {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.upload__samples-label {
+  font-size: var(--t-12);
+  color: var(--ink-2);
+  margin-right: 0.2rem;
+}
+
 .upload__fine {
   font-size: var(--t-12);
   color: var(--ink-2);

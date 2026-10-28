@@ -10,10 +10,22 @@ const HINT: Record<Slot, string> = {
   secondary: "Opcional. Outra data da mesma área: confirma que a vegetação é perene.",
 };
 
-const SAMPLE = {
-  primary: "/amostra/imagem_multiespectral.tif",
-  scl: "/amostra/qualidade_scl.tif",
-};
+// Recortes de Guaxupé (MG) na mesma grade; procedência em /amostra/*ATRIBUICAO.txt
+const KIT = "/amostra/imagem_multiespectral.tif";
+const KIT_SCL = "/amostra/qualidade_scl.tif";
+const FEV = "/amostra/s2b_20250217_imagem.tif";
+const FEV_SCL = "/amostra/s2b_20250217_scl.tif";
+const FEV_2ND = "/amostra/s2b_20250217_segunda_data.tif"; // máscara da SCL embutida (DN 0)
+
+export const SAMPLES = [
+  { label: "16 ago 2025 (seca)", title: "Guaxupé (MG), 16 ago 2025", urls: { primary: KIT, scl: KIT_SCL } },
+  { label: "17 fev 2025 (chuva)", title: "Guaxupé (MG), 17 fev 2025", urls: { primary: FEV, scl: FEV_SCL } },
+  {
+    label: "Duas datas",
+    title: "Guaxupé (MG), ago 2025 com fev 2025",
+    urls: { primary: KIT, scl: KIT_SCL, secondary: FEV_2ND },
+  },
+] as const satisfies readonly { label: string; title: string; urls: Partial<Record<Slot, string>> }[];
 
 type Files = Record<Slot, File | null>;
 const EMPTY: Files = { primary: null, scl: null, secondary: null };
@@ -22,7 +34,7 @@ export function UploadForm({ onCreated, onCancel }: { onCreated: (a: Analysis) =
   const [files, setFiles] = useState<Files>(EMPTY);
   const [title, setTitle] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
-  const [loadingSample, setLoadingSample] = useState(false);
+  const [loadingSample, setLoadingSample] = useState<string | null>(null);
   // Uma chave por conjunto de arquivos: reenviar o MESMO formulário após uma
   // falha de rede reaproveita a chave e o backend não duplica a análise.
   // (título incluído: editar o nome é outra submissão)
@@ -44,25 +56,26 @@ export function UploadForm({ onCreated, onCancel }: { onCreated: (a: Analysis) =
     setFiles((f) => ({ ...f, [slot]: file }));
   };
 
-  const loadSample = async () => {
-    setLoadingSample(true);
+  const loadSample = async (sample: (typeof SAMPLES)[number]) => {
+    setLoadingSample(sample.label);
     setLocalError(null);
     create.reset();
     try {
-      const [p, s] = await Promise.all(
-        [SAMPLE.primary, SAMPLE.scl].map(async (url) => {
+      const entries = await Promise.all(
+        Object.entries(sample.urls).map(async ([slot, url]) => {
           const r = await fetch(url);
           if (!r.ok) throw new Error(url);
-          return new File([await r.blob()], url.split("/").pop() as string, { type: "image/tiff" });
+          const file = new File([await r.blob()], url.split("/").pop() as string, { type: "image/tiff" });
+          return [slot, file] as const;
         }),
       );
       idemKey.current = crypto.randomUUID();
-      setFiles({ primary: p as File, scl: s as File, secondary: null });
-      setTitle("Guaxupé (MG), 16 ago 2025");
+      setFiles({ ...EMPTY, ...Object.fromEntries(entries) });
+      setTitle(sample.title);
     } catch {
       setLocalError("Não foi possível carregar a cena de exemplo. Recarregue a página e tente de novo.");
     } finally {
-      setLoadingSample(false);
+      setLoadingSample(null);
     }
   };
 
@@ -128,9 +141,23 @@ export function UploadForm({ onCreated, onCancel }: { onCreated: (a: Analysis) =
         <button type="submit" className="btn btn--primary" disabled={busy || !files.primary}>
           {busy ? "Enviando…" : "Processar imagem"}
         </button>
-        <button type="button" className="btn btn--quiet" onClick={() => void loadSample()} disabled={busy || loadingSample}>
-          {loadingSample ? "Carregando exemplo…" : "Usar cena de exemplo (Guaxupé)"}
-        </button>
+      </div>
+      <div className="upload__samples" role="group" aria-labelledby="samples-label">
+        <span id="samples-label" className="upload__samples-label">
+          Cenas de exemplo (Guaxupé, MG):
+        </span>
+        {SAMPLES.map((s) => (
+          <button
+            key={s.label}
+            type="button"
+            className="chip"
+            onClick={() => void loadSample(s)}
+            disabled={busy || loadingSample !== null}
+            aria-busy={loadingSample === s.label}
+          >
+            {loadingSample === s.label ? "Carregando…" : s.label}
+          </button>
+        ))}
       </div>
       <p className="upload__fine">
         Até {MAX_UPLOAD_MB} MB por envio e 1500 × 1500 px. O processamento roda no servidor a cada envio; os
