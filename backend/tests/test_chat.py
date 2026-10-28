@@ -320,6 +320,11 @@ def test_automatic_two_dates():
 
 def test_no_polygons():
     s = summary(candidate_polygons=0, candidate_area_ha=0.0, polygons=[])
+    # formato real do pipeline sem candidatas: grupo "candidates" = None
+    s["results"]["index_stats"]["ndvi"]["candidates"] = None
+    assert chat.build_context(s)["indices"]["ndvi"]["candidatas"] is None
+    assert "Não há candidatas" in chat.automatic_answer("e o NDVI?", s)
+    assert chat.respond("e o NDVI?", s, [], FakeModel(), breaker())["source"] == "gemini"
     assert "nenhuma área passou" in chat.introduction(s)
     assert (
         chat.automatic_answer("maior polígono", s) == "Esta análise não tem polígonos candidatos."

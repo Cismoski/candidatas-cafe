@@ -196,7 +196,7 @@ def run_analysis(
 
     year = (scene.acquired_utc or "")[:4]
     attribution = "Contains modified Copernicus Sentinel data" + (f" ({year})" if year else "")
-    mode = "temporal" if other_scene is not None else "single_date"
+    mode = "two_dates" if other_scene is not None else "single_date"
     date_label = (scene.acquired_utc or "data desconhecida")[:10]
 
     fc = feature_collection(polygons, props, grid)

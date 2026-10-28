@@ -135,7 +135,8 @@ def build_context(summary: dict, question: str = "", history: Iterable[str] = ()
         },
         "indices": {
             name: {
-                grupo: {k: s.get(k) for k in ("mean", "median", "p05", "p95")}
+                # sem candidatas o pipeline grava None no grupo
+                grupo: {k: s.get(k) for k in ("mean", "median", "p05", "p95")} if s else None
                 for grupo, s in (
                     ("area_analisada", v["analysed_land"]),
                     ("candidatas", v["candidates"]),
@@ -434,6 +435,11 @@ def automatic_answer(question: str, summary: dict) -> str:
             if not s:
                 return f"O {idx.upper()} não está nas estatísticas desta análise."
             a, c = s["analysed_land"], s["candidates"]
+            if not c or not a:
+                return (
+                    f"{idx.upper()} médio na área analisada: {_num((a or {}).get('mean'))}. "
+                    "Não há candidatas, então não há estatística delas."
+                )
             return (
                 f"{idx.upper()} médio: {_num(c['mean'])} nas candidatas e {_num(a['mean'])} na área "
                 f"analisada (mediana {_num(c['median'])} e {_num(a['median'])}; faixa p05 a p95 das "

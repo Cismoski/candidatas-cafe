@@ -101,7 +101,7 @@ export interface Summary {
     temporal_rejected_ha: number;
     input_coverage: Record<string, number>;
     class_areas: Record<ClassKey, { label: string; area_ha: number }>;
-    index_stats: Record<string, { analysed_land: Percentiles; candidates: Percentiles }>;
+    index_stats: Record<string, { analysed_land: Percentiles | null; candidates: Percentiles | null }>;
     polygons: PolygonStats[];
   };
   map: {

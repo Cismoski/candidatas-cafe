@@ -193,7 +193,7 @@ def test_pipeline_temporal_mode_and_scl(tmp_path, synthetic, cfg):
     s = run_analysis(
         synthetic, tmp_path / "o", cfg, scl_path=tmp_path / "scl.tif", secondary_path=p2
     )
-    assert s["method"]["mode"] == "temporal"
+    assert s["method"]["mode"] == "two_dates"
     assert s["inputs"]["scl_used"] is True
     assert s["results"]["candidate_polygons"] == 0
     assert s["results"]["polygons"] == []
