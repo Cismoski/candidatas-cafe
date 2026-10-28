@@ -18,10 +18,15 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 import jwt
+import requests
+from cachecontrol import CacheControl
 from fastapi import Depends, HTTPException, Request, status
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
+from starlette.concurrency import run_in_threadpool
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from .db import Database, now
 from .settings import Settings
@@ -43,13 +48,26 @@ class InvalidGoogleToken(Exception):
 
 GoogleVerifier = Callable[[str, str], GoogleIdentity]
 
-_transport = google_requests.Request()
+
+class _GoogleTransport(google_requests.Request):
+    """Sessão HTTP com cache (respeita o Cache-Control das chaves públicas do
+    Google, ~horas) e timeout curto: sem isso a lib baixa os certificados a cada
+    login, com timeout padrão de 120 s."""
+
+    def __call__(self, *args, timeout: float = 5, **kwargs):
+        return super().__call__(*args, timeout=timeout, **kwargs)
+
+
+_transport = _GoogleTransport(session=CacheControl(requests.Session()))
+CLOCK_SKEW_S = 10  # relógios do cliente/Google/servidor podem divergir alguns segundos
 
 
 def verify_google_id_token(token: str, client_id: str) -> GoogleIdentity:
     """Valida o ID token com as chaves públicas do Google (cacheadas pela lib)."""
     try:
-        claims = id_token.verify_oauth2_token(token, _transport, audience=client_id)
+        claims = id_token.verify_oauth2_token(
+            token, _transport, audience=client_id, clock_skew_in_seconds=CLOCK_SKEW_S
+        )
     except ValueError as e:  # assinatura, audiência ou expiração inválidas
         raise InvalidGoogleToken(str(e)) from e
     if claims.get("iss") not in GOOGLE_ISSUERS:
@@ -102,19 +120,54 @@ UNAUTHORIZED = HTTPException(
 )
 
 
+def authenticate(token: str, settings: Settings, db: Database) -> CurrentUser | None:
+    """Valida o JWT, a revogação e a existência do usuário. None se inválido."""
+    try:
+        claims = decode_token(token, settings)
+    except jwt.PyJWTError:
+        return None
+    if db.is_revoked(claims["jti"]) or db.get_user(claims["sub"]) is None:
+        return None
+    return CurrentUser(id=claims["sub"], jti=claims["jti"], expires_at_ts=claims["exp"])
+
+
 def current_user(
     request: Request,
     creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
 ) -> CurrentUser:
     if creds is None or creds.scheme.lower() != "bearer":
         raise UNAUTHORIZED
-    settings: Settings = request.app.state.settings
-    db: Database = request.app.state.db
-    try:
-        claims = decode_token(creds.credentials, settings)
-    except jwt.PyJWTError:
-        raise UNAUTHORIZED from None
-    if db.is_revoked(claims["jti"]) or db.get_user(claims["sub"]) is None:
+    user = authenticate(creds.credentials, request.app.state.settings, request.app.state.db)
+    if user is None:
         raise UNAUTHORIZED
-    request.state.user_id = claims["sub"]  # usado pela chave do rate limit
-    return CurrentUser(id=claims["sub"], jti=claims["jti"], expires_at_ts=claims["exp"])
+    request.state.user_id = user.id  # usado pela chave do rate limit
+    return user
+
+
+class BearerPrecheckMiddleware:
+    """Rejeita com 401 as rotas listadas ANTES de ler o corpo.
+
+    Sem isso, o FastAPI faz o parse do multipart (até o limite de upload) antes
+    de rodar a dependência de autenticação: qualquer anônimo gastaria memória e
+    disco, e respostas 401 nem passam pelo rate limit.
+    """
+
+    def __init__(self, app: ASGIApp, routes: set[tuple[str, str]]):
+        self.app, self.routes = app, routes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and (scope["method"], scope["path"]) in self.routes:
+            auth = dict(scope.get("headers", [])).get(b"authorization", b"").decode("latin-1")
+            scheme, _, token = auth.partition(" ")
+            state = scope["app"].state
+            ok = (
+                scheme.lower() == "bearer"
+                and token
+                and await run_in_threadpool(authenticate, token, state.settings, state.db)
+            )
+            if not ok:
+                response = JSONResponse(
+                    {"detail": UNAUTHORIZED.detail}, 401, headers=UNAUTHORIZED.headers
+                )
+                return await response(scope, receive, send)
+        await self.app(scope, receive, send)

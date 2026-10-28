@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     jwt_issuer: str = "globalwatch-api"
     jwt_audience: str = "globalwatch-web"
 
+    # Quantos proxies confiáveis acrescentam ao X-Forwarded-For (Render: 1).
+    # 0 = usa o IP da conexão (desenvolvimento local, sem proxy).
+    trusted_proxy_hops: int = Field(default=0, ge=0, le=3)
+
     # CORS: lista separada por vírgula, ex. "https://app.pages.dev,http://localhost:5173"
     cors_origins: str = "http://localhost:5173"
 
@@ -30,6 +34,8 @@ class Settings(BaseSettings):
     max_raster_dim: int = Field(default=1500, ge=64)
     uploads_per_day: int = Field(default=10, ge=1)
     job_timeout_seconds: int = Field(default=300, ge=10)
+    # Análises na fila (todas as contas) acima disso => 503
+    max_queued_jobs: int = Field(default=4, ge=1)
     # False só nos testes: roda o pipeline no mesmo processo
     job_isolation: bool = True
 
@@ -39,6 +45,8 @@ class Settings(BaseSettings):
     # Retenção
     retention_hours: int = Field(default=24, ge=1)
     retention_sweep_minutes: int = Field(default=15, ge=1)
+    # Conta (e-mail/nome) sem login há N dias e sem análises é apagada
+    user_retention_days: int = Field(default=30, ge=1)
 
     @property
     def cors_origin_list(self) -> list[str]:

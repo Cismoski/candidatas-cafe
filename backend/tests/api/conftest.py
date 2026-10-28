@@ -74,6 +74,9 @@ def scene_bytes(tmp_path) -> bytes:
 
 
 def upload(client, headers, data: bytes, filename="cena.tif", **extra_files):
+    """Envia e espera a fila de processamento esvaziar (o job roda em outra thread)."""
     files = {"primary": (filename, data, "image/tiff")}
     files.update(extra_files)
-    return client.post("/analyses", headers=headers, files=files)
+    r = client.post("/analyses", headers=headers, files=files)
+    client.app.state.jobs.drain(timeout=60)
+    return r

@@ -1,15 +1,18 @@
 """Execução das análises fora do ciclo da requisição.
 
-- A rota agenda via BackgroundTasks (threadpool): o event loop nunca bloqueia.
+- Fila própria: um ThreadPoolExecutor de 1 thread, separado do threadpool do
+  FastAPI. Jobs esperando na fila não ocupam threads das rotas, então /health
+  e as demais rotas continuam respondendo com a fila cheia. O tamanho da fila
+  é limitado na rota (503 acima de max_queued_jobs).
 - O processamento roda num SUBPROCESSO (spawn) com timeout:
   * a memória do numpy/GDAL volta ao sistema quando o processo termina
     (o plano gratuito tem 512 MB);
   * um OOM-kill ou travamento mata só o filho, não a API;
-  * o timeout é aplicado de fato (terminate), o que uma thread não permite.
-- Um semáforo limita a 1 processamento simultâneo.
+  * o timeout é aplicado de fato (terminate), o que uma thread não permite;
+  * apagar a análise em processamento termina o filho (cancel).
 - Os produtos são gerados em outputs.tmp/ e só então renomeados para outputs/
   (rename atômico no mesmo filesystem): nunca existe saída pela metade.
-- Se a análise foi apagada enquanto processava, o resultado é descartado.
+- Se a análise foi apagada no meio do caminho, o resultado é descartado.
 """
 
 import json
@@ -18,6 +21,8 @@ import multiprocessing as mp
 import shutil
 import threading
 import time
+from concurrent.futures import Future, ThreadPoolExecutor, wait
+from multiprocessing.process import BaseProcess
 from pathlib import Path
 
 from .db import Database
@@ -25,7 +30,6 @@ from .processing.config import ClassificationConfig
 from .storage import INPUT_NAMES, Storage
 
 log = logging.getLogger("globalwatch.jobs")
-_slots = threading.BoundedSemaphore(1)
 
 GENERIC_ERROR = "Não foi possível processar a imagem. Verifique o arquivo e tente novamente."
 TIMEOUT_ERROR = "O processamento excedeu o tempo limite. Tente uma imagem menor."
@@ -55,77 +59,155 @@ def _child(primary: str, out_dir: str, cfg: dict, scl: str | None, secondary: st
         sys.exit(EXIT_SCENE_ERROR)
 
 
-def _run(args: tuple, tmp: Path, isolate: bool, timeout_s: int) -> str | None:
-    """Executa o pipeline; devolve mensagem de erro para o usuário ou None."""
-    if not isolate:  # testes: mesmo processo, mesma semântica de erro
-        try:
-            _child(*args)
-        except SystemExit:
-            return json.loads((tmp / ERROR_FILE).read_text("utf-8"))["error"]
-        return None
+def _scene_error(tmp: Path) -> str:
+    try:
+        return json.loads((tmp / ERROR_FILE).read_text("utf-8"))["error"]
+    except (OSError, ValueError, KeyError):
+        return GENERIC_ERROR
 
+
+def run_isolated(args: tuple, tmp: Path, timeout_s: float, on_start=None) -> str | None:
+    """Executa o pipeline num subprocesso; devolve mensagem de erro ou None."""
     proc = mp.get_context("spawn").Process(target=_child, args=args, daemon=True)
     proc.start()
+    if on_start:
+        on_start(proc)
     proc.join(timeout_s)
     if proc.is_alive():
-        proc.terminate()
-        proc.join(5)
-        if proc.is_alive():
-            proc.kill()
-            proc.join()
+        _terminate(proc)
         return TIMEOUT_ERROR
     if proc.exitcode == 0:
         return None
     if proc.exitcode == EXIT_SCENE_ERROR:
-        return json.loads((tmp / ERROR_FILE).read_text("utf-8"))["error"]
-    if proc.exitcode is not None and proc.exitcode < 0:  # morto por sinal (ex.: OOM killer)
+        return _scene_error(tmp)
+    if proc.exitcode is not None and proc.exitcode < 0:  # morto por sinal (OOM killer, cancel)
         log.error("subprocesso morto pelo sinal %d", -proc.exitcode)
         return OOM_ERROR
     log.error("subprocesso terminou com código %s", proc.exitcode)
     return GENERIC_ERROR
 
 
-def process_analysis(
-    db: Database,
-    storage: Storage,
-    cfg: ClassificationConfig,
-    owner_id: str,
-    analysis_id: str,
-    *,
-    isolate: bool = True,
-    timeout_s: int = 300,
-) -> None:
-    with _slots:
-        if not db.set_status(analysis_id, "processing"):
+def run_inline(args: tuple, tmp: Path) -> str | None:
+    """Mesmo contrato de run_isolated, no próprio processo (só para testes)."""
+    try:
+        _child(*args)
+    except SystemExit:
+        return _scene_error(tmp)
+    return None
+
+
+def _terminate(proc: BaseProcess) -> None:
+    proc.terminate()
+    proc.join(5)
+    if proc.is_alive():
+        proc.kill()
+        proc.join()
+
+
+class JobRunner:
+    def __init__(
+        self,
+        db: Database,
+        storage: Storage,
+        cfg: ClassificationConfig,
+        *,
+        isolate: bool = True,
+        timeout_s: int = 300,
+    ):
+        self.db, self.storage, self.cfg = db, storage, cfg
+        self.isolate, self.timeout_s = isolate, timeout_s
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="analysis")
+        self._lock = threading.Lock()
+        self._running: dict[str, BaseProcess] = {}
+        self._futures: set[Future] = set()
+
+    def submit(self, owner_id: str, analysis_id: str) -> None:
+        fut = self._executor.submit(self._process, owner_id, analysis_id)
+        with self._lock:
+            self._futures.add(fut)
+        fut.add_done_callback(self._forget)
+
+    def _forget(self, fut: Future) -> None:
+        with self._lock:
+            self._futures.discard(fut)
+
+    def cancel(self, analysis_id: str) -> None:
+        """Chamado ao apagar a análise: termina o subprocesso, se estiver rodando."""
+        with self._lock:
+            proc = self._running.get(analysis_id)
+        if proc is not None and proc.is_alive():
+            _terminate(proc)
+
+    def drain(self, timeout: float | None = None) -> None:
+        """Espera a fila esvaziar (testes e desligamento)."""
+        with self._lock:
+            pending = list(self._futures)
+        wait(pending, timeout=timeout)
+
+    def shutdown(self) -> None:
+        with self._lock:
+            procs = list(self._running.values())
+        for p in procs:
+            _terminate(p)
+        self._executor.shutdown(wait=False, cancel_futures=True)
+
+    def _process(self, owner_id: str, analysis_id: str) -> None:
+        try:
+            self._process_unsafe(owner_id, analysis_id)
+        except Exception:
+            # Nunca deixa exceção escapar da thread: registra e marca falha.
+            log.exception("falha inesperada no job %s", analysis_id)
+            if not self.db.set_status(analysis_id, "failed", error=GENERIC_ERROR):
+                self.storage.remove_analysis(owner_id, analysis_id)
+        finally:
+            with self._lock:
+                self._running.pop(analysis_id, None)
+
+    def _process_unsafe(self, owner_id: str, analysis_id: str) -> None:
+        if not self.db.set_status(analysis_id, "processing"):
             return  # apagada antes de começar
-        inputs = storage.inputs_dir(owner_id, analysis_id)
-        final = storage.outputs_dir(owner_id, analysis_id)
+        inputs = self.storage.inputs_dir(owner_id, analysis_id)
+        final = self.storage.outputs_dir(owner_id, analysis_id)
         tmp = final.with_name("outputs.tmp")
         shutil.rmtree(tmp, ignore_errors=True)
         args = (
             str(inputs / INPUT_NAMES["primary"]),
             str(tmp),
-            cfg.model_dump(),
+            self.cfg.model_dump(),
             _optional(inputs / INPUT_NAMES["scl"]),
             _optional(inputs / INPUT_NAMES["secondary"]),
         )
         t0 = time.perf_counter()
+        if self.isolate:
+            error = run_isolated(args, tmp, self.timeout_s, on_start=self._register(analysis_id))
+        else:
+            error = run_inline(args, tmp)
+
         try:
-            error = _run(args, tmp, isolate, timeout_s)
-        except Exception:
-            log.exception("falha ao processar análise %s", analysis_id)
-            error = GENERIC_ERROR
+            if error is None:
+                summary = json.loads((tmp / "summary.json").read_text("utf-8"))
+                shutil.rmtree(final, ignore_errors=True)
+                tmp.rename(final)
+        except FileNotFoundError:
+            # a análise foi apagada enquanto processava
+            self.storage.remove_analysis(owner_id, analysis_id)
+            return
+
         if error is not None:
             shutil.rmtree(tmp, ignore_errors=True)
-            if not db.set_status(analysis_id, "failed", error=error):
-                storage.remove_analysis(owner_id, analysis_id)
-            return
-        summary = json.loads((tmp / "summary.json").read_text("utf-8"))
-        shutil.rmtree(final, ignore_errors=True)
-        tmp.rename(final)
-        log.info("análise %s processada em %.1fs", analysis_id, time.perf_counter() - t0)
-        if not db.set_status(analysis_id, "done", summary=summary):
-            storage.remove_analysis(owner_id, analysis_id)  # apagada durante o processamento
+            done = self.db.set_status(analysis_id, "failed", error=error)
+        else:
+            log.info("análise %s processada em %.1fs", analysis_id, time.perf_counter() - t0)
+            done = self.db.set_status(analysis_id, "done", summary=summary)
+        if not done:  # apagada durante o processamento
+            self.storage.remove_analysis(owner_id, analysis_id)
+
+    def _register(self, analysis_id: str):
+        def on_start(proc: BaseProcess) -> None:
+            with self._lock:
+                self._running[analysis_id] = proc
+
+        return on_start
 
 
 def _optional(p: Path) -> str | None:

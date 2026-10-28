@@ -21,8 +21,9 @@ GOOD = {
 def _patch(monkeypatch, result):
     calls = {}
 
-    def fake(token, request, audience):
+    def fake(token, request, audience, clock_skew_in_seconds=0):
         calls["audience"] = audience
+        calls["skew"] = clock_skew_in_seconds
         if isinstance(result, Exception):
             raise result
         return result
@@ -36,6 +37,7 @@ def test_valid_token(monkeypatch):
     ident = verify_google_id_token("t", "my-client-id")
     assert (ident.sub, ident.email, ident.name) == ("123", "a@example.com", "A")
     assert calls["audience"] == "my-client-id"  # audiência sempre conferida
+    assert calls["skew"] == 10  # tolera relógios levemente fora de sincronia
 
 
 @pytest.mark.parametrize("iss", ["accounts.google.com", "https://accounts.google.com"])

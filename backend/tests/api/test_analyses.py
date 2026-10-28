@@ -129,7 +129,8 @@ def _tif(tmp_path, name, dn, **kw):
         (lambda t: b"%PDF-1.4 nao sou tiff", "não é um GeoTIFF"),
         (lambda t: _png_bytes(), "não é um GeoTIFF"),
         (lambda t: b"II*\x00" + b"\x00" * 100, "não foi possível ler"),
-        (lambda t: _tif(t, "b3.tif", make_scene(8, 8)[:3]), "4 bandas"),
+        (lambda t: _tif(t, "b3.tif", make_scene(8, 8)[:3]), "de 4 a 13 bandas"),
+        (lambda t: _tif(t, "b14.tif", np.ones((14, 8, 8), np.uint16)), "de 4 a 13 bandas"),
         (lambda t: _tif(t, "f.tif", make_scene(8, 8).astype(np.float32)), "uint16"),
         (
             lambda t: _tif(
@@ -227,15 +228,17 @@ def test_job_discards_result_if_analysis_deleted_meanwhile(
     client, alice, scene_bytes, settings, monkeypatch
 ):
     app = client.app
-    real = jobs._run
+    real = jobs.run_inline
 
-    def delete_then_run(args, tmp, isolate, timeout_s):
-        owner = tmp.parent.parent.name
-        aid = tmp.parent.name
-        app.state.db.delete_analysis(aid, owner)  # usuário apagou durante o processamento
-        return real(args, tmp, isolate, timeout_s)
+    def run_then_delete(args, tmp):
+        result = real(args, tmp)
+        owner, aid = tmp.parent.parent.name, tmp.parent.name
+        # usuário apagou DEPOIS do processamento e ANTES do rename
+        app.state.db.delete_analysis(aid, owner)
+        app.state.storage.remove_analysis(owner, aid)
+        return result
 
-    monkeypatch.setattr(jobs, "_run", delete_then_run)
+    monkeypatch.setattr(jobs, "run_inline", run_then_delete)
     r = upload(client, alice, scene_bytes)
     assert client.get(f"/analyses/{r.json()['id']}", headers=alice).status_code == 404
     assert not list((settings.data_dir / "users").rglob(r.json()["id"]))
@@ -285,7 +288,11 @@ def test_retention_sweep_deletes_old_analyses_and_orphans(client, alice, scene_b
         / "22222222-2222-2222-2222-222222222222"
     )
     orphan.mkdir(parents=True)
-    assert sweep(db, storage, settings.retention_hours) == 1
+    old_mtime = (now() - timedelta(hours=2)).timestamp()
+    import os
+
+    os.utime(orphan, (old_mtime, old_mtime))
+    assert sweep(db, storage, settings) == 1
     ids = [x["id"] for x in client.get("/analyses", headers=alice).json()]
     assert ids == [b["id"]]
     assert not list(storage.root.rglob(a["id"])) and not orphan.parent.exists()
@@ -306,9 +313,187 @@ def test_isolated_subprocess_path(tmp_path, scene_bytes):
     assert a["status"] == "done" and a["summary"]["results"]["candidate_polygons"] == 1
 
 
-def test_subprocess_timeout_is_enforced(tmp_path):
+def test_subprocess_timeout_and_crash(tmp_path):
     args = ("/nao/existe.tif", str(tmp_path / "o"), {}, None, None)
     # cfg vazio falha na validação dentro do filho -> código != 0
-    assert jobs._run(args, tmp_path / "o", isolate=True, timeout_s=60) == jobs.GENERIC_ERROR
+    assert jobs.run_isolated(args, tmp_path / "o", timeout_s=60) == jobs.GENERIC_ERROR
     # timeout ínfimo: o filho é terminado
-    assert jobs._run(args, tmp_path / "o", isolate=True, timeout_s=0) == jobs.TIMEOUT_ERROR
+    assert jobs.run_isolated(args, tmp_path / "o", timeout_s=0) == jobs.TIMEOUT_ERROR
+
+
+# --- itens da revisão da fase 2 -------------------------------------------------------
+def test_oversized_body_on_any_route_is_413(client):
+    """Sem token: corpo grande em /auth/google era lido inteiro para a memória."""
+    r = client.post(
+        "/auth/google",
+        content=b"{" + b" " * (65 * 1024) + b"}",
+        headers={"Content-Type": "application/json"},
+    )
+    assert r.status_code == 413
+
+
+def test_chunked_body_over_limit_is_413(client, alice):
+    """Sem Content-Length: o contador de bytes do middleware corta o corpo."""
+
+    def gen():
+        for _ in range(6):
+            yield b"\x00" * (1024 * 1024)
+
+    r = client.post(
+        "/analyses",
+        headers={**alice, "Content-Type": "multipart/form-data; boundary=x"},
+        content=gen(),
+    )
+    assert r.status_code == 413
+
+
+def test_anonymous_multipart_gets_401_before_parsing(client, monkeypatch):
+    from starlette.requests import Request
+
+    def boom(*a, **k):
+        raise AssertionError("o corpo não deveria ser lido")
+
+    monkeypatch.setattr(Request, "form", boom)
+    r = client.post("/analyses", files={"primary": ("a.tif", b"II*\x00" + b"0" * 1000)})
+    assert r.status_code == 401
+    r = client.post(
+        "/analyses",
+        headers={"Authorization": "Bearer lixo"},
+        files={"primary": ("a.tif", b"II*\x00")},
+    )
+    assert r.status_code == 401
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        {"outro": ("a.tif", b"II*\x00")},
+        [("primary", ("a.tif", b"II*\x00")), ("primary", ("b.tif", b"II*\x00"))],
+        [
+            ("primary", ("a.tif", b"II*\x00")),
+            ("scl", ("s.tif", b"II*\x00")),
+            ("secondary", ("c.tif", b"II*\x00")),
+            ("extra", ("d.tif", b"II*\x00")),
+        ],
+    ],
+)
+def test_unexpected_form_fields_rejected(client, alice, files):
+    assert client.post("/analyses", headers=alice, files=files).status_code in (400, 422)
+
+
+def test_band_bomb_rejected_by_header(client, alice, tmp_path):
+    """TIFF pequeno que declara muitas bandas (GBs descomprimidos) é rejeitado sem ler pixels."""
+    import rasterio
+    from rasterio.transform import from_origin
+
+    p = tmp_path / "bomb.tif"
+    with rasterio.open(
+        p,
+        "w",
+        driver="GTiff",
+        dtype="uint16",
+        count=200,
+        height=1500,
+        width=1500,
+        crs="EPSG:32723",
+        transform=from_origin(323200, 7642980, 10, 10),
+        compress="deflate",
+        sparse_ok=True,
+        tiled=True,
+    ):
+        pass  # nenhum pixel escrito: arquivo minúsculo
+    assert p.stat().st_size < 2 * 1024 * 1024
+    r = upload(client, alice, p.read_bytes())
+    assert r.status_code == 422 and "bandas" in r.json()["detail"]
+
+
+def test_queue_full_returns_503(tmp_path, scene_bytes):
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+    from tests.api.conftest import fake_verifier, login, make_settings
+
+    s = make_settings(tmp_path, max_queued_jobs=1)
+    with TestClient(create_app(s, google_verifier=fake_verifier)) as c:
+        h = login(c, "google-token-alice")
+        c.app.state.db.create_analysis(  # um job "preso" na fila
+            "33333333-3333-3333-3333-333333333333",
+            c.get("/me", headers=h).json()["id"],
+            "x",
+            False,
+            False,
+        )
+        r = upload(c, h, scene_bytes)
+        assert r.status_code == 503
+        assert c.get("/health").status_code == 200
+
+
+def test_idempotency_key_returns_same_analysis(client, alice, scene_bytes):
+    h = {**alice, "Idempotency-Key": "upload-0001-abc"}
+    files = {"primary": ("a.tif", scene_bytes, "image/tiff")}
+    first = client.post("/analyses", headers=h, files=files)
+    client.app.state.jobs.drain(60)
+    second = client.post("/analyses", headers=h, files=files)
+    assert first.status_code == 202 and second.status_code == 200
+    assert first.json()["id"] == second.json()["id"]
+    assert len(client.get("/analyses", headers=alice).json()) == 1
+    bad = client.post("/analyses", headers={**alice, "Idempotency-Key": "x"}, files=files)
+    assert bad.status_code == 422
+
+
+def test_idempotency_key_is_scoped_per_user(client, alice, bob, scene_bytes):
+    files = {"primary": ("a.tif", scene_bytes, "image/tiff")}
+    a = client.post("/analyses", headers={**alice, "Idempotency-Key": "same-key-123"}, files=files)
+    b = client.post("/analyses", headers={**bob, "Idempotency-Key": "same-key-123"}, files=files)
+    assert a.status_code == b.status_code == 202 and a.json()["id"] != b.json()["id"]
+    client.app.state.jobs.drain(60)
+
+
+def test_rejected_uploads_have_their_own_quota(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+    from tests.api.conftest import fake_verifier, login, make_settings
+
+    s = make_settings(tmp_path, uploads_per_day=1)
+    with TestClient(create_app(s, google_verifier=fake_verifier)) as c:
+        h = login(c, "google-token-alice")
+        uid = c.get("/me", headers=h).json()["id"]
+        for _ in range(3):  # 3 * uploads_per_day rejeições permitidas
+            c.app.state.db.consume_quota(uid, "upload_rejected", 3, timedelta(days=1))
+        r = upload(c, h, b"nao sou tiff")
+        assert r.status_code == 429 and "inválidos" in r.json()["detail"]
+
+
+def test_validation_errors_do_not_echo_input(client):
+    r = client.post("/auth/google", json={"credential": "segredo"})
+    assert r.status_code == 422 and "segredo" not in r.text
+
+
+def test_orphan_sweep_spares_recent_upload_dirs(client, settings):
+    storage = client.app.state.storage
+    d = (
+        storage.root
+        / "44444444-4444-4444-4444-444444444444"
+        / "55555555-5555-5555-5555-555555555555"
+    )
+    d.mkdir(parents=True)  # upload em andamento: arquivos antes da linha no banco
+    assert storage.remove_orphans(set()) == 0 and d.exists()
+
+
+def test_downloads_are_not_cached(client, alice, scene_bytes):
+    a = _done(client, alice, scene_bytes)
+    r = client.get(f"/analyses/{a['id']}/files/png", headers=alice)
+    assert "no-store" in r.headers["cache-control"]
+
+
+def test_inactive_users_without_analyses_are_purged(tmp_path):
+    db = Database(tmp_path / "db.sqlite3")
+    keep = db.upsert_user("k", "k@x.com", None)
+    gone = db.upsert_user("g", "g@x.com", None)
+    old = iso(now() - timedelta(days=40))
+    with db.connect() as c:
+        c.execute("UPDATE users SET last_login_at = ?", (old,))
+    db.create_analysis("a1", keep["id"], "t", False, False)
+    db.purge_expired(now() - timedelta(days=365), now() - timedelta(days=30))
+    assert db.get_user(keep["id"]) is not None and db.get_user(gone["id"]) is None

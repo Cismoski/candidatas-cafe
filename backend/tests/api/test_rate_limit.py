@@ -38,5 +38,30 @@ def test_login_rate_limited_per_ip(client):
     )
 
 
-def test_health_is_not_rate_limited(client):
+def test_default_limit_applies_but_health_is_exempt(client, alice):
     assert all(client.get("/health").status_code == 200 for _ in range(130))
+    codes = [client.get("/me", headers=alice).status_code for _ in range(121)]
+    assert codes[:120] == [200] * 120 and codes[120] == 429
+
+
+def test_rate_limit_key_uses_rightmost_forwarded_hop(tmp_path):
+    """Com 1 proxy confiável, o IP é a última entrada do X-Forwarded-For.
+    A primeira entrada é controlada pelo cliente e não pode trocar a chave."""
+    s = make_settings(tmp_path, trusted_proxy_hops=1)
+    with TestClient(create_app(s, google_verifier=fake_verifier)) as c:
+
+        def attempt(spoofed):
+            return c.post(
+                "/auth/google",
+                json={"credential": "google-token-invalido"},
+                headers={"X-Forwarded-For": f"{spoofed}, 203.0.113.7"},
+            ).status_code
+
+        codes = [attempt(f"10.0.0.{i}") for i in range(11)]
+        assert codes[:10] == [401] * 10 and codes[10] == 429  # forjar o 1º IP não ajuda
+        other = c.post(
+            "/auth/google",
+            json={"credential": "google-token-invalido"},
+            headers={"X-Forwarded-For": "203.0.113.8"},
+        )
+        assert other.status_code == 401  # outro cliente real não é bloqueado

@@ -3,31 +3,27 @@
 import asyncio
 import contextlib
 import logging
+import re
 import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
-from fastapi import (
-    BackgroundTasks,
-    Depends,
-    FastAPI,
-    File,
-    Form,
-    HTTPException,
-    Request,
-    UploadFile,
-)
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
+from slowapi.middleware import SlowAPIASGIMiddleware
 from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import UploadFile
+from starlette.formparsers import MultiPartException
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from . import jobs
 from .auth import (
+    BearerPrecheckMiddleware,
     CurrentUser,
     GoogleVerifier,
     InvalidGoogleToken,
@@ -35,12 +31,13 @@ from .auth import (
     issue_token,
     verify_google_id_token,
 )
-from .db import Database, QuotaExceeded, now
+from .db import Database, DuplicateRequest, QuotaExceeded, now
+from .jobs import JobRunner
 from .processing.config import ClassificationConfig, load_config
 from .settings import Settings, get_settings
 from .storage import DOWNLOADS, INPUT_NAMES, Storage
 from .uploads import (
-    LimitUploadSizeMiddleware,
+    BodySizeLimitMiddleware,
     RasterLimits,
     UploadRejected,
     save_upload,
@@ -50,14 +47,69 @@ from .uploads import (
 
 log = logging.getLogger("globalwatch")
 
+DEFAULT_MAX_BODY = 64 * 1024  # JSON de login, etc.
+
+SECURITY_HEADERS = [
+    (b"x-content-type-options", b"nosniff"),
+    (b"x-frame-options", b"DENY"),
+    (b"referrer-policy", b"no-referrer"),
+    (b"strict-transport-security", b"max-age=31536000"),
+]
+
+
+class SecurityHeadersMiddleware:
+    """Acrescenta headers de segurança e Cache-Control: no-store por padrão."""
+
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        async def send_with_headers(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                present = {k.lower() for k, _ in headers}
+                headers += [(k, v) for k, v in SECURITY_HEADERS if k not in present]
+                if b"cache-control" not in present:
+                    headers.append((b"cache-control", b"no-store"))
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
+
+
+IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9_\-]{8,64}$")
+UPLOAD_FIELDS = {"primary", "scl", "secondary"}
+
+
+# --- IP do cliente atrás de proxy ---------------------------------------------------
+def client_ip(request: Request) -> str:
+    """IP real do cliente para o rate limit.
+
+    Atrás do proxy do Render a conexão vem do proxy; o IP do cliente está no
+    X-Forwarded-For. Só as últimas `trusted_proxy_hops` entradas foram
+    acrescentadas por proxies confiáveis; as anteriores vêm do cliente e podem
+    ser forjadas. Por isso usamos a N-ésima entrada a partir da DIREITA, e não
+    a primeira (que é o que o --proxy-headers do uvicorn faz).
+    """
+    hops = request.app.state.settings.trusted_proxy_hops
+    xff = request.headers.get("x-forwarded-for")
+    if hops and xff:
+        parts = [p.strip() for p in xff.split(",") if p.strip()]
+        if parts:
+            return parts[-min(hops, len(parts))]
+    return request.client.host if request.client else "desconhecido"
+
 
 def user_or_ip(request: Request) -> str:
     """Chave de rate limit: usuário autenticado (preenchido por current_user) ou IP."""
     user_id = getattr(request.state, "user_id", None)
-    return f"user:{user_id}" if user_id else f"ip:{get_remote_address(request)}"
+    return f"user:{user_id}" if user_id else f"ip:{client_ip(request)}"
 
 
-# --- modelos de resposta ---------------------------------------------------------
+# --- modelos -------------------------------------------------------------------
 class GoogleLogin(BaseModel):
     credential: str = Field(min_length=10, max_length=4096)
 
@@ -94,8 +146,11 @@ NOT_FOUND = HTTPException(404, "Análise não encontrada.")
 
 
 # --- retenção -------------------------------------------------------------------
-def sweep(db: Database, storage: Storage, retention_hours: int) -> int:
-    expired = db.purge_expired(now() - timedelta(hours=retention_hours))
+def sweep(db: Database, storage: Storage, settings: Settings) -> int:
+    expired = db.purge_expired(
+        now() - timedelta(hours=settings.retention_hours),
+        now() - timedelta(days=settings.user_retention_days),
+    )
     for owner_id, analysis_id in expired:
         storage.remove_analysis(owner_id, analysis_id)
     storage.remove_orphans(db.analysis_ids())
@@ -106,7 +161,7 @@ async def _sweep_loop(app: FastAPI) -> None:
     s: Settings = app.state.settings
     while True:
         try:
-            n = await run_in_threadpool(sweep, app.state.db, app.state.storage, s.retention_hours)
+            n = await run_in_threadpool(sweep, app.state.db, app.state.storage, s)
             if n:
                 log.info("retenção: %d análises apagadas", n)
         except Exception:
@@ -130,41 +185,49 @@ def create_app(
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
+        app.state.jobs.shutdown()
 
     app = FastAPI(title="Global Watch — café", version="1.0.0", lifespan=lifespan)
     app.state.settings = settings
-    app.state.db = Database(settings.db_path)
-    app.state.storage = Storage(settings.data_dir)
+    db = app.state.db = Database(settings.db_path)
+    storage = app.state.storage = Storage(settings.data_dir)
     app.state.cfg = classification or load_config()
-    # Um limiter por app (memória do processo): sem estado global entre instâncias.
-    # Instância única no plano gratuito; com várias réplicas, trocar por Redis.
-    limiter = Limiter(key_func=get_remote_address, default_limits=["120/minute"])
+    app.state.jobs = JobRunner(
+        db,
+        storage,
+        app.state.cfg,
+        isolate=settings.job_isolation,
+        timeout_s=settings.job_timeout_seconds,
+    )
+    # Um limiter por app, em memória do processo. O deploy roda 1 worker numa
+    # única instância; com réplicas, o storage precisaria ser Redis.
+    limiter = Limiter(key_func=client_ip, default_limits=["120/minute"])
     app.state.limiter = limiter
-
     limits = RasterLimits(max_dim=settings.max_raster_dim)
 
-    # Ordem: o último adicionado é o mais externo. CORS por fora para que até
-    # respostas 413/429 levem os headers e o navegador mostre a mensagem.
+    # Ordem: o último adicionado é o mais externo.
+    #   CORS -> limite de corpo -> headers -> pré-checagem do Bearer -> rate limit -> rotas
+    # Todos são ASGI puros: BaseHTTPMiddleware embrulha o receive num task group
+    # e transformaria o 413 do limite de corpo num ExceptionGroup (500).
+    # CORS por fora para que até 401/413/429 levem os headers e o navegador
+    # consiga mostrar a mensagem.
+    app.add_middleware(SlowAPIASGIMiddleware)
+    app.add_middleware(BearerPrecheckMiddleware, routes={("POST", "/analyses")})
+    app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(
-        LimitUploadSizeMiddleware, max_bytes=settings.max_upload_bytes, paths=("/analyses",)
+        BodySizeLimitMiddleware,
+        default_max=DEFAULT_MAX_BODY,
+        overrides={("POST", "/analyses"): settings.max_upload_bytes},
     )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
         allow_credentials=False,  # Bearer no header; nenhum cookie
         allow_methods=["GET", "POST", "DELETE"],
-        allow_headers=["Authorization", "Content-Type"],
+        allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
+        expose_headers=["Content-Disposition"],
         max_age=600,
     )
-
-    @app.middleware("http")
-    async def security_headers(request: Request, call_next):
-        response: Response = await call_next(request)
-        response.headers.setdefault("X-Content-Type-Options", "nosniff")
-        response.headers.setdefault("X-Frame-Options", "DENY")
-        response.headers.setdefault("Referrer-Policy", "no-referrer")
-        response.headers.setdefault("Cache-Control", "no-store")
-        return response
 
     @app.exception_handler(RateLimitExceeded)
     async def _rate_limited(request: Request, exc: RateLimitExceeded):
@@ -173,12 +236,18 @@ def create_app(
             status_code=429,
         )
 
+    @app.exception_handler(RequestValidationError)
+    async def _invalid(request: Request, exc: RequestValidationError):
+        # Sem ecoar o valor enviado ("input"): no login ele seria o token do Google.
+        errors = [{"loc": e["loc"], "msg": e["msg"]} for e in exc.errors()]
+        return JSONResponse({"detail": errors}, status_code=422)
+
     User = Annotated[CurrentUser, Depends(current_user)]
 
     # --- públicos --------------------------------------------------------------
     @app.get("/health")
     @limiter.exempt
-    def health():
+    async def health():  # async: não depende do threadpool
         return {"status": "ok"}
 
     @app.post("/auth/google", response_model=Session)
@@ -188,7 +257,7 @@ def create_app(
             identity = google_verifier(body.credential, settings.google_client_id)
         except InvalidGoogleToken:
             raise HTTPException(401, "Login com Google inválido.") from None
-        user = app.state.db.upsert_user(identity.sub, identity.email, identity.name)
+        user = db.upsert_user(identity.sub, identity.email, identity.name)
         token, ttl = issue_token(user["id"], settings)
         return Session(
             access_token=token,
@@ -199,37 +268,79 @@ def create_app(
     # --- autenticados ------------------------------------------------------------
     @app.post("/auth/logout", status_code=204)
     def logout(user: User):
-        app.state.db.revoke_token(user.jti, datetime.fromtimestamp(user.expires_at_ts, UTC))
+        db.revoke_token(user.jti, datetime.fromtimestamp(user.expires_at_ts, UTC))
         return Response(status_code=204)
 
     @app.get("/me")
     def me(user: User):
-        u = app.state.db.get_user(user.id)
+        u = db.get_user(user.id)
         return {"id": u["id"], "email": u["email"], "name": u["name"]}
 
     @app.get("/analyses", response_model=list[AnalysisItem])
     def list_analyses(user: User):
-        rows = app.state.db.list_analyses(user.id)
-        return [_out(a, settings.retention_hours, AnalysisItem) for a in rows]
+        return [_out(a, settings.retention_hours, AnalysisItem) for a in db.list_analyses(user.id)]
 
-    @app.post("/analyses", response_model=AnalysisOut, status_code=202)
+    @app.post(
+        "/analyses",
+        response_model=AnalysisOut,
+        status_code=202,
+        openapi_extra={
+            "requestBody": {
+                "content": {
+                    "multipart/form-data": {
+                        "schema": {
+                            "type": "object",
+                            "required": ["primary"],
+                            "properties": {
+                                "primary": {"type": "string", "format": "binary"},
+                                "scl": {"type": "string", "format": "binary"},
+                                "secondary": {"type": "string", "format": "binary"},
+                                "title": {"type": "string", "maxLength": 80},
+                            },
+                        }
+                    }
+                },
+                "required": True,
+            }
+        },
+    )
     @limiter.limit("3/minute", key_func=user_or_ip)
-    @limiter.limit("30/day", key_func=get_remote_address)
-    async def create_analysis(
-        request: Request,
-        background: BackgroundTasks,
-        user: User,
-        primary: Annotated[
-            UploadFile, File(description="GeoTIFF 4 bandas uint16 (B02,B03,B04,B08)")
-        ],
-        scl: Annotated[UploadFile | None, File(description="SCL do Sentinel-2 (opcional)")] = None,
-        secondary: Annotated[
-            UploadFile | None, File(description="Mesma área em outra data (opcional)")
-        ] = None,
-        title: Annotated[str, Form(max_length=80)] = "",
-    ):
-        db: Database = app.state.db
-        storage: Storage = app.state.storage
+    @limiter.limit("30/day", key_func=client_ip)
+    async def create_analysis(request: Request, response: Response, user: User):
+        idem = request.headers.get("idempotency-key")
+        if idem is not None and not IDEMPOTENCY_KEY.fullmatch(idem):
+            raise HTTPException(422, "Idempotency-Key inválida (8-64 caracteres [A-Za-z0-9_-]).")
+        if idem:
+            # Repetição de uma requisição já aceita (ex.: retry após timeout)
+            existing = await run_in_threadpool(db.find_by_idempotency_key, user.id, idem)
+            if existing:
+                response.status_code = 200
+                return _out(existing, settings.retention_hours)
+        if await run_in_threadpool(db.count_active) >= settings.max_queued_jobs:
+            raise HTTPException(503, "Fila de processamento cheia. Tente em alguns minutos.")
+
+        try:
+            form = await request.form(max_files=3, max_fields=1, max_part_size=1024)
+        except MultiPartException as e:
+            raise HTTPException(400, f"Formulário inválido: {e.message}") from None
+        try:
+            keys = [k for k, v in form.multi_items() if isinstance(v, UploadFile)]
+            if set(keys) - UPLOAD_FIELDS or len(keys) != len(set(keys)):
+                raise HTTPException(422, "Campos de arquivo aceitos: primary, scl, secondary.")
+            files = {k: form[k] for k in keys}
+            title = form.get("title", "")
+            if "primary" not in files:
+                raise HTTPException(422, "Envie a imagem principal no campo 'primary'.")
+            if not isinstance(title, str) or len(title) > 80:
+                raise HTTPException(422, "Título deve ter no máximo 80 caracteres.")
+            return await run_in_threadpool(_accept_upload, user, files, title, idem, response)
+        finally:
+            await form.close()
+
+    def _accept_upload(
+        user: CurrentUser, files: dict, title: str, idem: str | None, response: Response
+    ) -> AnalysisOut:
+        """Parte bloqueante (disco, rasterio, SQLite), executada no threadpool."""
         try:
             db.consume_quota(user.id, "upload", settings.uploads_per_day, timedelta(days=1))
         except QuotaExceeded:
@@ -239,45 +350,46 @@ def create_app(
 
         analysis_id = str(uuid.uuid4())
         inputs = storage.inputs_dir(user.id, analysis_id)
-        files = {"primary": primary, "scl": scl, "secondary": secondary}
-
-        def receive() -> None:
-            for key, upload in files.items():
-                if upload is None:
+        try:
+            for key in ("primary", "scl", "secondary"):
+                if key not in files:
                     continue
                 dest = inputs / INPUT_NAMES[key]
-                save_upload(upload, dest, settings.max_upload_bytes)
+                save_upload(files[key], dest, settings.max_upload_bytes)
                 if key == "scl":
                     validate_scl(dest, limits)
                 else:
                     label = "Imagem principal" if key == "primary" else "Segunda data"
                     validate_multispectral(dest, limits, label)
-
-        try:
-            await run_in_threadpool(receive)
         except UploadRejected as e:
             storage.remove_analysis(user.id, analysis_id)
             db.release_quota(user.id, "upload")
+            # Rejeições não gastam a cota de análises, mas têm cota própria:
+            # cada validação custa I/O e CPU.
+            try:
+                db.consume_quota(
+                    user.id, "upload_rejected", 3 * settings.uploads_per_day, timedelta(days=1)
+                )
+            except QuotaExceeded:
+                raise HTTPException(429, "Muitos arquivos inválidos hoje.") from None
             raise HTTPException(422, str(e)) from None
         except BaseException:
             storage.remove_analysis(user.id, analysis_id)
             db.release_quota(user.id, "upload")
             raise
 
-        clean_title = " ".join(title.split()) or (primary.filename or "Análise")[:80]
-        db.create_analysis(
-            analysis_id, user.id, clean_title, scl is not None, secondary is not None
-        )
-        background.add_task(
-            jobs.process_analysis,
-            db,
-            storage,
-            app.state.cfg,
-            user.id,
-            analysis_id,
-            isolate=settings.job_isolation,
-            timeout_s=settings.job_timeout_seconds,
-        )
+        clean_title = " ".join(title.split()) or (files["primary"].filename or "Análise")[:80]
+        try:
+            db.create_analysis(
+                analysis_id, user.id, clean_title, "scl" in files, "secondary" in files, idem
+            )
+        except DuplicateRequest:
+            # Corrida entre duas requisições com a mesma chave: a outra venceu
+            storage.remove_analysis(user.id, analysis_id)
+            db.release_quota(user.id, "upload")
+            response.status_code = 200
+            return _out(db.find_by_idempotency_key(user.id, idem), settings.retention_hours)
+        app.state.jobs.submit(user.id, analysis_id)
         return _out(db.get_analysis(analysis_id, user.id), settings.retention_hours)
 
     def _owned(analysis_id: str, user: CurrentUser) -> dict:
@@ -285,7 +397,7 @@ def create_app(
             uuid.UUID(analysis_id)
         except ValueError:
             raise NOT_FOUND from None
-        a = app.state.db.get_analysis(analysis_id, user.id)
+        a = db.get_analysis(analysis_id, user.id)
         if a is None:
             raise NOT_FOUND  # 404 também para análise de outro usuário: não revela existência
         return a
@@ -302,7 +414,7 @@ def create_app(
         if a["status"] != "done":
             raise HTTPException(409, "A análise ainda não terminou.")
         filename, media, attachment = DOWNLOADS[name]
-        path = app.state.storage.outputs_dir(user.id, analysis_id) / filename
+        path = storage.outputs_dir(user.id, analysis_id) / filename
         if not path.is_file():
             raise HTTPException(404, "Arquivo não encontrado.")
         return FileResponse(
@@ -310,16 +422,18 @@ def create_app(
             media_type=media,
             filename=f"cafe-{analysis_id[:8]}-{filename}" if attachment else None,
             content_disposition_type="attachment" if attachment else "inline",
-            headers={"Cache-Control": "private, max-age=3600"},
+            # no-store: depois de apagar/sair, nada fica no cache do navegador
+            headers={"Cache-Control": "private, no-store"},
         )
 
     @app.delete("/analyses/{analysis_id}", status_code=204)
     def delete_analysis(analysis_id: str, user: User):
         _owned(analysis_id, user)
         # Banco primeiro: se o processo cair antes do rmtree, a varredura de
-        # órfãos remove os arquivos. O job em andamento descarta o próprio resultado.
-        if app.state.db.delete_analysis(analysis_id, user.id):
-            app.state.storage.remove_analysis(user.id, analysis_id)
+        # órfãos remove os arquivos. Um job em andamento é terminado.
+        if db.delete_analysis(analysis_id, user.id):
+            app.state.jobs.cancel(analysis_id)
+            storage.remove_analysis(user.id, analysis_id)
         return Response(status_code=204)
 
     return app

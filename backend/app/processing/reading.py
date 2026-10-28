@@ -89,23 +89,24 @@ def _safe_tag(value: str | None, pattern: re.Pattern) -> str | None:
     return value if value is not None and pattern.fullmatch(value) else None
 
 
-def _reflectance_bands(
-    dn: npt.NDArray[np.integer], scales, offsets, nodata_dn: int, cfg: ClassificationConfig
-) -> dict[str, F32]:
-    out = {}
-    for name in ("blue", "green", "red", "nir"):
-        i = getattr(cfg.bands, name) - 1
-        out[name] = dn_to_reflectance(dn[i], scales[i], offsets[i], nodata_dn)
-    return out
+BAND_ORDER = ("blue", "green", "red", "nir")
+
+
+def _band_indexes(cfg: ClassificationConfig) -> list[int]:
+    return [getattr(cfg.bands, name) for name in BAND_ORDER]
 
 
 def _scene_from_dn(dn, ds, grid: Grid, cfg: ClassificationConfig) -> Scene:
+    """dn: (4, h, w) já na ordem BAND_ORDER (só as bandas usadas são lidas)."""
     scales, offsets, source = resolve_scale_offset(
         ds.scales, ds.offsets, cfg.radiometry.default_scale, cfg.radiometry.default_offset
     )
     # NoData declarado no arquivo tem precedência; senão, o padrão do L2A (0)
     nodata = int(ds.nodata) if ds.nodata is not None else cfg.radiometry.nodata_dn
-    bands = _reflectance_bands(dn, scales, offsets, nodata, cfg)
+    bands = {
+        name: dn_to_reflectance(dn[i], scales[idx - 1], offsets[idx - 1], nodata)
+        for i, (name, idx) in enumerate(zip(BAND_ORDER, _band_indexes(cfg), strict=True))
+    }
     valid = np.logical_and.reduce([np.isfinite(b) for b in bands.values()])
     tags = ds.tags()
     return Scene(
@@ -134,7 +135,8 @@ def read_scene(path: Path, cfg: ClassificationConfig) -> Scene:
     with rasterio.open(path) as ds:
         grid = _check_grid(ds)
         _require_bands(ds, cfg)
-        dn = ds.read()
+        # Só as 4 bandas usadas: um arquivo com muitas bandas não vira muitos GB
+        dn = ds.read(_band_indexes(cfg))
         return _scene_from_dn(dn, ds, grid, cfg)
 
 
@@ -148,15 +150,16 @@ def read_scene_on_grid(path: Path, target: Grid, cfg: ClassificationConfig) -> S
     with rasterio.open(path) as ds:
         grid = _check_grid(ds)
         _require_bands(ds, cfg)
+        indexes = _band_indexes(cfg)
         if grid.same_as(target):
-            dn = ds.read()
+            dn = ds.read(indexes)
         else:
             nodata = cfg.radiometry.nodata_dn
-            dn = np.full((ds.count, target.height, target.width), nodata, dtype=ds.dtypes[0])
-            for b in range(ds.count):
+            dn = np.full((4, target.height, target.width), nodata, dtype=ds.dtypes[0])
+            for i, idx in enumerate(indexes):
                 reproject(
-                    source=rasterio.band(ds, b + 1),
-                    destination=dn[b],
+                    source=rasterio.band(ds, idx),
+                    destination=dn[i],
                     src_nodata=nodata,
                     dst_nodata=nodata,
                     dst_transform=target.transform,

@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS users (
     google_sub  TEXT NOT NULL UNIQUE,
     email       TEXT NOT NULL,
     name        TEXT,
-    created_at  TEXT NOT NULL
+    created_at  TEXT NOT NULL,
+    last_login_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS analyses (
     id            TEXT PRIMARY KEY,
@@ -32,11 +33,15 @@ CREATE TABLE IF NOT EXISTS analyses (
     has_scl       INTEGER NOT NULL,
     has_secondary INTEGER NOT NULL,
     summary_json  TEXT,
+    idempotency_key TEXT,
     created_at    TEXT NOT NULL,
     updated_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_analyses_owner_created ON analyses(owner_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS ix_analyses_created ON analyses(created_at);
+CREATE INDEX IF NOT EXISTS ix_analyses_status ON analyses(status);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_analyses_idempotency
+    ON analyses(owner_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
 CREATE TABLE IF NOT EXISTS revoked_tokens (
     jti         TEXT PRIMARY KEY,
     expires_at  TEXT NOT NULL
@@ -60,6 +65,10 @@ def iso(dt: datetime) -> str:
 
 class QuotaExceeded(Exception):
     pass
+
+
+class DuplicateRequest(Exception):
+    """Idempotency-Key já usada por este usuário."""
 
 
 class Database:
@@ -96,22 +105,25 @@ class Database:
     # --- usuários -----------------------------------------------------------
     def upsert_user(self, google_sub: str, email: str, name: str | None) -> dict:
         with self.transaction() as c:
+            ts = iso(now())
             row = c.execute("SELECT * FROM users WHERE google_sub = ?", (google_sub,)).fetchone()
             if row:
                 c.execute(
-                    "UPDATE users SET email = ?, name = ? WHERE id = ?", (email, name, row["id"])
+                    "UPDATE users SET email = ?, name = ?, last_login_at = ? WHERE id = ?",
+                    (email, name, ts, row["id"]),
                 )
-                return {**dict(row), "email": email, "name": name}
+                return {**dict(row), "email": email, "name": name, "last_login_at": ts}
             user = {
                 "id": str(uuid.uuid4()),
                 "google_sub": google_sub,
                 "email": email,
                 "name": name,
-                "created_at": iso(now()),
+                "created_at": ts,
+                "last_login_at": ts,
             }
             c.execute(
-                "INSERT INTO users (id, google_sub, email, name, created_at) "
-                "VALUES (:id, :google_sub, :email, :name, :created_at)",
+                "INSERT INTO users (id, google_sub, email, name, created_at, last_login_at) "
+                "VALUES (:id, :google_sub, :email, :name, :created_at, :last_login_at)",
                 user,
             )
             return user
@@ -168,15 +180,51 @@ class Database:
 
     # --- análises ----------------------------------------------------------------
     def create_analysis(
-        self, analysis_id: str, owner_id: str, title: str, has_scl: bool, has_secondary: bool
+        self,
+        analysis_id: str,
+        owner_id: str,
+        title: str,
+        has_scl: bool,
+        has_secondary: bool,
+        idempotency_key: str | None = None,
     ) -> None:
         ts = iso(now())
+        try:
+            with self.connect() as c:
+                c.execute(
+                    "INSERT INTO analyses (id, owner_id, status, title, has_scl, has_secondary, "
+                    "idempotency_key, created_at, updated_at) "
+                    "VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?)",
+                    (
+                        analysis_id,
+                        owner_id,
+                        title,
+                        int(has_scl),
+                        int(has_secondary),
+                        idempotency_key,
+                        ts,
+                        ts,
+                    ),
+                )
+        except sqlite3.IntegrityError as e:
+            if idempotency_key is not None and "idempotency" in str(e):
+                raise DuplicateRequest from None
+            raise
+
+    def find_by_idempotency_key(self, owner_id: str, key: str) -> dict | None:
         with self.connect() as c:
-            c.execute(
-                "INSERT INTO analyses (id, owner_id, status, title, has_scl, has_secondary, "
-                "created_at, updated_at) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?)",
-                (analysis_id, owner_id, title, int(has_scl), int(has_secondary), ts, ts),
-            )
+            row = c.execute(
+                "SELECT * FROM analyses WHERE owner_id = ? AND idempotency_key = ?",
+                (owner_id, key),
+            ).fetchone()
+            return self._row_to_analysis(row, True) if row else None
+
+    def count_active(self) -> int:
+        """Análises na fila ou processando (todas as contas): limita a fila global."""
+        with self.connect() as c:
+            return c.execute(
+                "SELECT COUNT(*) FROM analyses WHERE status IN ('pending', 'processing')"
+            ).fetchone()[0]
 
     def set_status(
         self,
@@ -204,6 +252,7 @@ class Database:
     def _row_to_analysis(row: sqlite3.Row, with_summary: bool) -> dict:
         d = dict(row)
         raw = d.pop("summary_json")
+        d.pop("idempotency_key", None)
         d["has_scl"] = bool(d["has_scl"])
         d["has_secondary"] = bool(d["has_secondary"])
         if with_summary:
@@ -246,8 +295,15 @@ class Database:
             return cur.rowcount
 
     # --- retenção ------------------------------------------------------------------
-    def purge_expired(self, older_than: datetime) -> list[tuple[str, str]]:
-        """Apaga análises antigas e devolve (owner_id, id) para remover os arquivos."""
+    def purge_expired(
+        self, older_than: datetime, inactive_users_before: datetime
+    ) -> list[tuple[str, str]]:
+        """Apaga análises antigas e devolve (owner_id, id) para remover os arquivos.
+
+        Também remove dados pessoais de quem não entra desde inactive_users_before
+        e não tem análises (minimização, LGPD art. 15/16), tokens revogados já
+        expirados e eventos de cota fora da janela.
+        """
         cutoff = iso(older_than)
         with self.transaction() as c:
             rows = c.execute(
@@ -257,6 +313,11 @@ class Database:
             c.execute("DELETE FROM revoked_tokens WHERE expires_at < ?", (iso(now()),))
             c.execute(
                 "DELETE FROM usage_events WHERE created_at < ?", (iso(now() - timedelta(days=2)),)
+            )
+            c.execute(
+                "DELETE FROM users WHERE last_login_at < ? "
+                "AND NOT EXISTS (SELECT 1 FROM analyses a WHERE a.owner_id = users.id)",
+                (iso(inactive_users_before),),
             )
             return [(r["owner_id"], r["id"]) for r in rows]
 

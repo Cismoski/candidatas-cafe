@@ -5,7 +5,9 @@ servidor e arquivos têm nomes fixos. Mesmo assim, todo caminho é resolvido e
 conferido contra a raiz (defesa em profundidade contra path traversal).
 """
 
+import contextlib
 import shutil
+import time
 import uuid
 from pathlib import Path
 
@@ -46,16 +48,25 @@ class Storage:
     def remove_analysis(self, owner_id: str, analysis_id: str) -> None:
         shutil.rmtree(self.analysis_dir(owner_id, analysis_id), ignore_errors=True)
 
-    def remove_orphans(self, known_ids: set[str]) -> int:
-        """Remove diretórios de análise sem registro no banco (ex.: crash no meio do delete)."""
+    def remove_orphans(self, known_ids: set[str], grace_seconds: float = 3600) -> int:
+        """Remove diretórios de análise sem registro no banco (ex.: crash no meio do delete).
+
+        Diretórios modificados há menos de grace_seconds são poupados: os
+        arquivos do upload são gravados antes da linha no banco existir, e
+        known_ids é um retrato tirado antes da varredura.
+        """
         removed = 0
+        cutoff = time.time() - grace_seconds
         for owner in self.root.iterdir():
             if not owner.is_dir():
                 continue
             for d in owner.iterdir():
-                if d.is_dir() and d.name not in known_ids:
-                    shutil.rmtree(d, ignore_errors=True)
-                    removed += 1
-            if not any(owner.iterdir()):
+                if d.name in known_ids:
+                    continue
+                with contextlib.suppress(FileNotFoundError):  # apagado em paralelo
+                    if d.is_dir() and d.stat().st_mtime < cutoff:
+                        shutil.rmtree(d, ignore_errors=True)
+                        removed += 1
+            with contextlib.suppress(OSError):  # não vazio ou recriado por um upload
                 owner.rmdir()
         return removed
