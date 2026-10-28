@@ -3,7 +3,7 @@ import type { Analysis, DownloadName, Summary } from "../api/types";
 import { useDeleteAnalysis } from "../api/queries";
 import { useAuth } from "../auth/AuthProvider";
 import { saveBlob } from "../lib/files";
-import { formatExpiry, formatHa, formatIndex, formatInt, formatPct } from "../lib/format";
+import { formatExpiry, formatHa, formatIndex, formatInt, formatPct, formatSigned } from "../lib/format";
 import { useNow } from "../lib/useNow";
 import { STATUS_LABEL } from "./AnalysisList";
 import { ChatPanel } from "./ChatPanel";
@@ -245,8 +245,7 @@ function Result({
             <>
               <dt>Variação sazonal descontada (NDVI)</dt>
               <dd>
-                {m.temporal_ndvi_shift > 0 ? "+" : ""}
-                {formatIndex(m.temporal_ndvi_shift)}, mediana da vegetação da cena entre as duas datas
+                {formatSigned(m.temporal_ndvi_shift)}, mediana da vegetação da cena entre as duas datas
               </dd>
             </>
           )}

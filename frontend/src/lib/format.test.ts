@@ -1,5 +1,5 @@
 import fc from "fast-check";
-import { formatDegrees, formatExpiry, formatHa, formatSceneDate } from "./format";
+import { formatDegrees, formatExpiry, formatHa, formatSceneDate, formatSigned } from "./format";
 
 describe("formatExpiry (BVA)", () => {
   const now = Date.parse("2026-10-28T12:00:00Z");
@@ -56,4 +56,14 @@ describe("formatHa e datas", () => {
     expect(formatSceneDate(null)).toBe("data desconhecida");
     expect(formatSceneDate("x")).toBe("data desconhecida");
   });
+});
+
+it.each([
+  [0.1457, "+0,15"],
+  [-0.0336, "−0,03"],
+  [0.004, "0,00"], // arredonda antes do sinal: nunca "+0,00"
+  [-0.004, "0,00"],
+  [0, "0,00"],
+])("formatSigned(%s) = %s", (v, out) => {
+  expect(formatSigned(v)).toBe(out);
 });

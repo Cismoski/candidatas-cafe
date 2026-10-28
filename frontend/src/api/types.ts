@@ -64,10 +64,11 @@ export type ClassKey =
 export interface PolygonStats {
   id: number;
   area_ha: number;
-  ndvi_mean: number;
-  ndwi_mean: number;
-  savi_mean: number;
-  texture_mean: number;
+  // null quando o polígono não tem nenhum pixel finito no índice (_per_label_mean)
+  ndvi_mean: number | null;
+  ndwi_mean: number | null;
+  savi_mean: number | null;
+  texture_mean: number | null;
   ndvi_other_date_mean?: number | null;
   point_lon: number;
   point_lat: number;

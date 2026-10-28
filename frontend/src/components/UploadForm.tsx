@@ -103,7 +103,9 @@ export function UploadForm({ onCreated, onCancel }: { onCreated: (a: Analysis) =
     );
   };
 
-  const busy = create.isPending;
+  // Carregando exemplo também trava o formulário: senão o exemplo, ao chegar,
+  // sobrescreveria um arquivo escolhido ou um envio já disparado
+  const busy = create.isPending || loadingSample !== null;
   return (
     <form className="upload" onSubmit={submit} aria-busy={busy} noValidate>
       <div className="upload__head">
@@ -139,7 +141,7 @@ export function UploadForm({ onCreated, onCancel }: { onCreated: (a: Analysis) =
 
       <div className="upload__actions">
         <button type="submit" className="btn btn--primary" disabled={busy || !files.primary}>
-          {busy ? "Enviando…" : "Processar imagem"}
+          {create.isPending ? "Enviando…" : "Processar imagem"}
         </button>
       </div>
       <div className="upload__samples" role="group" aria-labelledby="samples-label">
@@ -152,12 +154,15 @@ export function UploadForm({ onCreated, onCancel }: { onCreated: (a: Analysis) =
             type="button"
             className="chip"
             onClick={() => void loadSample(s)}
-            disabled={busy || loadingSample !== null}
+            disabled={busy}
             aria-busy={loadingSample === s.label}
           >
             {loadingSample === s.label ? "Carregando…" : s.label}
           </button>
         ))}
+        <span className="sr-only" role="status">
+          {loadingSample ? `Carregando a cena de exemplo ${loadingSample}` : ""}
+        </span>
       </div>
       <p className="upload__fine">
         Até {MAX_UPLOAD_MB} MB por envio e 1500 × 1500 px. O processamento roda no servidor a cada envio; os

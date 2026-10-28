@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { json, makeAnalysis, mockFetch, renderWithProviders, signIn } from "../test/utils";
@@ -130,9 +131,25 @@ it("exemplo de duas datas preenche a segunda data; trocar de exemplo limpa o que
 it("todo arquivo de exemplo existe em public/ e tem a atribuição ao lado", () => {
   for (const s of SAMPLES) {
     for (const url of Object.values(s.urls)) {
-      expect(existsSync(`public${url}`), url).toBe(true);
+      expect(existsSync(resolve(__dirname, `../../public${url}`)), url).toBe(true);
     }
   }
-  expect(existsSync("public/amostra/ATRIBUICAO.txt")).toBe(true);
-  expect(existsSync("public/amostra/s2b_20250217_ATRIBUICAO.txt")).toBe(true);
+  for (const f of ["ATRIBUICAO.txt", "s2b_20250217_ATRIBUICAO.txt"]) {
+    expect(existsSync(resolve(__dirname, `../../public/amostra/${f}`)), f).toBe(true);
+  }
+});
+
+it("enquanto o exemplo carrega, arquivos e envio ficam travados", async () => {
+  let release: (r: Response) => void = () => {};
+  mockFetch({
+    "GET /amostra/imagem_multiespectral.tif": () => new Promise<Response>((r) => (release = r)),
+    "GET /amostra/qualidade_scl.tif": TIFF,
+  });
+  const { user } = setup();
+  await user.click(screen.getByRole("button", { name: "16 ago 2025 (seca)" }));
+  expect(screen.getByLabelText("Imagem principal")).toBeDisabled();
+  expect(screen.getByRole("status")).toHaveTextContent("Carregando a cena de exemplo 16 ago 2025 (seca)");
+  release(TIFF());
+  expect(await screen.findByText("imagem_multiespectral.tif")).toBeInTheDocument();
+  expect(screen.getByLabelText("Imagem principal")).toBeEnabled();
 });

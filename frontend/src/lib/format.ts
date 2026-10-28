@@ -50,3 +50,9 @@ export function formatDegrees(value: number, axis: "lat" | "lon"): string {
   }
   return `${deg}°${min.toLocaleString("pt-BR", { minimumFractionDigits: 1 })}′ ${hemi}`;
 }
+
+/** Variação com sinal explícito; arredonda antes de decidir o sinal ("+0,00" nunca aparece). */
+export const formatSigned = (v: number) => {
+  const s = idx.format(Math.abs(v));
+  return s === idx.format(0) ? s : `${v > 0 ? "+" : "−"}${s}`;
+};
