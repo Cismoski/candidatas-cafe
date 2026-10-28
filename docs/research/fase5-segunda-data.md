@@ -84,6 +84,48 @@ quando a imagem principal é de outubro a março.
 - **Acurácia.** Nenhum desses números é acurácia. Sem amostras de referência,
   só medem consistência entre datas.
 
+## Comparação com o MapBiomas (concordância, não acurácia)
+
+Cada análise lê a janela do MapBiomas Coleção 11 (30 m, CC BY 4.0) do ano da
+imagem e reprojeta para a grade da cena por vizinho mais próximo. No recorte,
+o MapBiomas 2025 mapeia 43,0 ha de café.
+
+| Análise | Candidatas | IoU | Candidatas sobre café MapBiomas | Café MapBiomas marcado como candidata |
+|---|---|---|---|---|
+| 16/08/2025 | 155,31 ha | 0,038 | 4,7% | 16,9% |
+| 17/02/2025 | 192,49 ha | 0,017 | 2,0% | 9,0% |
+| ago/2025 + fev/2025 (com desconto) | 109,41 ha | 0,044 | 5,9% | 15,0% |
+
+Pelo MapBiomas, as candidatas de 16/08/2025 são:
+
+| Classe do MapBiomas | Fração das candidatas |
+|---|---|
+| Outras lavouras temporárias | 36,6% |
+| Pastagem | 34,4% |
+| Mosaico de usos | 14,0% |
+| Cana | 5,9% |
+| Café | 4,7% |
+
+Onde o MapBiomas diz café, a nossa classificação de agosto pôs:
+
+| Nossa classe | Fração do café MapBiomas |
+|---|---|
+| Dossel fechado | 36,5% |
+| Vegetação intermediária descartada | 27,0% |
+| Solo/vegetação rala | 19,6% |
+| Candidata | 16,9% |
+
+Leitura:
+- A regra "vigor intermediário" captura sobretudo lavouras temporárias e pasto.
+- Parte relevante do café do MapBiomas tem NDVI acima do limiar de Otsu de
+  agosto (0,665) e cai em "dossel fechado".
+- O desconto sazonal com a segunda data melhora pouco a concordância
+  (IoU 0,038 → 0,044).
+
+Nada disso é acurácia: o MapBiomas é outro mapa, a 30 m, que não publica
+acurácia específica para café. A conferência manual (recorte do COG via
+`/vsicurl/`, cruzado com `classes.tif`) deu os mesmos números da aplicação.
+
 ## Reprodução
 
 ```bash
