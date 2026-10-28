@@ -7,7 +7,7 @@ import re
 import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -16,7 +16,6 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
-from slowapi.middleware import SlowAPIASGIMiddleware
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 from starlette.formparsers import MultiPartException
@@ -34,6 +33,7 @@ from .auth import (
 from .db import Database, DuplicateRequest, QuotaExceeded, now
 from .jobs import JobRunner
 from .processing.config import ClassificationConfig, load_config
+from .ratelimit import RateLimitMiddleware
 from .settings import Settings, get_settings
 from .storage import DOWNLOADS, INPUT_NAMES, Storage
 from .uploads import (
@@ -123,7 +123,7 @@ class Session(BaseModel):
 
 class AnalysisItem(BaseModel):
     id: str
-    status: str
+    status: Literal["pending", "processing", "done", "failed"]
     error: str | None
     title: str
     has_scl: bool
@@ -211,7 +211,7 @@ def create_app(
     # e transformaria o 413 do limite de corpo num ExceptionGroup (500).
     # CORS por fora para que até 401/413/429 levem os headers e o navegador
     # consiga mostrar a mensagem.
-    app.add_middleware(SlowAPIASGIMiddleware)
+    app.add_middleware(RateLimitMiddleware)  # slowapi corrigido (ver ratelimit.py)
     app.add_middleware(BearerPrecheckMiddleware, routes={("POST", "/analyses")})
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(
