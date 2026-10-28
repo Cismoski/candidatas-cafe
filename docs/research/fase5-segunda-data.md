@@ -123,8 +123,9 @@ Leitura:
   (IoU 0,038 → 0,044).
 
 Nada disso é acurácia: o MapBiomas é outro mapa, a 30 m, que não publica
-acurácia específica para café. A conferência manual (recorte do COG via
-`/vsicurl/`, cruzado com `classes.tif`) deu os mesmos números da aplicação.
+acurácia específica para café. Uma conferência ad hoc (recorte do COG via `/vsicurl/`, cruzado com
+`classes.tif`) deu os mesmos números da aplicação. Essa conferência não tem
+script no repositório; a reprodução oficial é rodar a análise na aplicação.
 
 ## Reprodução
 

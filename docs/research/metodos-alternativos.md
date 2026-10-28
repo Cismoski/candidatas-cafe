@@ -35,7 +35,7 @@ Leituras para o nosso caso:
 - Café (46): **43 ha**, em 33 manchas, a maior com 9 ha.
 - Formação florestal: 944 ha. Pastagem: 694 ha. Outras lavouras temporárias: 345 ha. Mosaico de usos: 296 ha. Urbano: 192 ha.
 
-O recorte tem pouco café pelo MapBiomas. No município inteiro, o MapBiomas C11 mapeia **3.430 ha** de café, contra **3.950 ha** de área colhida no IBGE/PAM 2023 [S8]. A escala municipal bate (87 %), mas isso não diz nada sobre a posição dos pixels.
+O recorte tem pouco café pelo MapBiomas. No município inteiro, o MapBiomas C11 mapeia **3.430 ha** de café, contra **3.950 ha** de área colhida no IBGE/PAM 2023 [S8]. A área municipal do MapBiomas é 13 % menor que a da PAM. Mesmo que batesse, isso não diria nada sobre a posição dos pixels. [NÃO REPRODUZÍVEL NO REPOSITÓRIO: soma feita pelo agente de pesquisa, sem script versionado; refazer antes de citar.]
 
 **Método atual × MapBiomas.**
 
@@ -80,16 +80,16 @@ O que a tabela mostra (com rótulos MB ruidosos):
 | k-means (8 grupos, NDVI + DP nas 2 datas) | nenhum grupo com > 4,3 % de café MB | — | — | — | — | — |
 | *Referência: MB 30 m café × MB 10 m "Lavoura perene" (C4)* | — | *0,22* | — | — | — | — |
 
-Leituras dos pilotos:
+Leituras dos pilotos (rodados pelo agente de pesquisa fora do repositório; os números da tabela não são reproduzíveis a partir dos scripts versionados):
 - Treinar **só dentro** do recorte não funciona: há só 2–11 objetos "puros" de café por bloco.
-- Os dois produtos do próprio MapBiomas concordam entre si com IoU de apenas 0,22. Esse é o teto prático de concordância esperável a 10 m.
+- Os dois produtos do próprio MapBiomas concordam entre si com IoU de apenas 0,22 neste recorte. Isso dá contexto (mapas de café independentes discordam muito em escala de pixel), mas não é um teto demonstrado.
 
 ## 3. Recomendação (no máximo 2 métodos extras)
 
 | # | Método | Solidez para o Sul de MG | Implementável em ~1 dia | Explicável | Nota |
 |---|---|---|---|---|---|
 | **1** | **Objetos (SLIC) + atributos espectrais, textura e Δ de 2 datas + RF treinado offline com rótulos MapBiomas fora do recorte** | Alta: [S1] usa as mesmas bandas e objetos. [S2]/[P2] mostram ganho com textura | Sim: scikit-image + scikit-learn. Inferência no recorte < 2 s | Média–alta: importâncias e atributos por polígono | **Escolhido** |
-| 2 | Regra de "perenidade" em 2 datas, sem rótulos | Média: coerente com P1 e com a tabela da seção 2 | Muito fácil | Alta | Concordância baixa no piloto (IoU 0,06). Usar só como **filtro/explicação** |
+| 2 | Regra de "perenidade" em 2 datas, sem rótulos | Média: coerente com P1 e com a tabela da seção 2 | Muito fácil | Alta | Concordância baixa no piloto (IoU 0,06; piloto do agente de pesquisa, sem script no repositório). Usar só como **filtro/explicação** |
 | — | k-means / GMM puro | Baixa: não aparece nas fontes; no piloto não isolou café | Fácil | Média | Não recomendado |
 | — | Deep learning (U-Net, TempCNN) | Alta na literatura, mas com séries densas e rótulos | Não: sem GPU, sem rótulos de 10 m | Baixa | Fora do escopo |
 
@@ -123,7 +123,7 @@ Sem verdade de campo, os parâmetros se definem assim:
 Alternativa à GLCM: `skimage.feature.graycomatrix` por objeto (contraste e homogeneidade do NDVI quantizado em 32 níveis). Fica ~10× mais lento, e o ganho não foi testado aqui.
 
 **Falhas esperadas do método 1:**
-- herda os erros do MapBiomas. O MB usa SWIR e mediana anual, e marca como café qualquer pixel classificado como café nos últimos 5 anos [S6];
+- herda os erros do MapBiomas. O MB usa SWIR e mediana anual, e marca como café qualquer pixel classificado como café nos últimos 5 anos [S6] [VERIFICAR];
 - café recepado ou em formação confundido com pasto;
 - café adensado confundido com mata;
 - modelo atrelado ao par de datas e à órbita (R038). Outra estação exige retreino;
