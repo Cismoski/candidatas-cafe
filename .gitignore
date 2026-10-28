@@ -21,3 +21,6 @@ data/
 
 # Kit do desafio: fica fora do repo público até decidirmos o que redistribuir
 kit/
+
+# Metadados auxiliares que o GDAL/QGIS gravam ao lado dos rasters
+*.aux.xml

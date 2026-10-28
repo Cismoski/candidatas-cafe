@@ -7,11 +7,13 @@
 Uso (da raiz do repositório):
     uv run scripts/baixar_cena.py S2B_T23KLS_20250217T132718_L2A \\
         --grade frontend/public/amostra/imagem_multiespectral.tif \\
-        --saida frontend/public/amostra --prefixo s2b_20250217
+        --saida frontend/public/amostra --prefixo s2b_20250217 --acessado 2026-10-28
 
 Lê só a janela do recorte nos COGs públicos (requisições HTTP de intervalo,
 sem baixar o tile de 110 km). Não reamostra: a cena precisa estar no mesmo
 CRS e na mesma grade de 10 m da imagem de referência, senão o script para.
+O recorte também precisa caber na grade de 20 m da SCL (origem e tamanho em
+número par de pixels de 10 m), como o do kit.
 
 Gera, no formato do kit (uint16, DN original, nodata 0):
 - <prefixo>_imagem.tif: B02, B03, B04, B08, para usar como imagem principal;
@@ -24,6 +26,7 @@ Gera, no formato do kit (uint16, DN original, nodata 0):
 
 import argparse
 import hashlib
+import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -105,6 +108,12 @@ def read_window(href: str, ref, res: float) -> tuple[np.ndarray, rasterio.Affine
     with rasterio.open(href) as ds:
         if ds.crs != ref.crs:
             raise SceneError(f"CRS da cena {ds.crs} diferente da referência {ref.crs}")
+        # A janela é calculada com `res`: se o arquivo tiver outra resolução, leria
+        # outra área sem erro (ex.: SCL de 10 m lida como 20 m cobre metade do recorte)
+        if abs(ds.transform.a - res) > 1e-9 or abs(ds.transform.e + res) > 1e-9:
+            raise SceneError(
+                f"resolução {ds.transform.a:g} x {ds.transform.e:g} m, esperado {res:g} x -{res:g} m"
+            )
         win = aligned_window(ref.bounds, ds.transform, res)
         if (
             win.col_off < 0
@@ -162,6 +171,7 @@ def extract(
         "ACQUISITION_UTC": acquired,
         "SOURCE_ITEM": item_id,
         "ATTRIBUTION": f"Contains modified Copernicus Sentinel data ({year})",
+        "TERMS": TERMS,
     }
     profile = dict(
         driver="GTiff",
@@ -207,6 +217,7 @@ def extract(
     with rasterio.open(paths["scl"], "w", count=1, dtype="uint8", **scl_profile) as dst:
         dst.write(scl, 1)
         dst.set_band_description(1, "Sentinel-2_SCL_20m")
+        dst.update_tags(**tags, MODIFICATION="Spatial crop; original resolution and values")
 
     counts = {int(k): int(v) for k, v in zip(*np.unique(scl, return_counts=True), strict=True)}
     total = scl.size
@@ -215,6 +226,7 @@ def extract(
         "aquisicao_utc": acquired,
         "pixels_sem_dado_pct": round(100 * float(nodata.mean()), 2),
         "pixels_validos_scl_pct": round(100 * float((valid & ~nodata).mean()), 2),
+        "pixels_mascarados": int((~(valid & ~nodata)).sum()),
         "scl_pct": {SCL_NAMES.get(k, str(k)): round(100 * v / total, 2) for k, v in counts.items()},
         "sha256": {p.name: sha256(p) for p in paths.values()},
     }
@@ -227,7 +239,7 @@ def extract(
 
 def attribution(item: dict, hrefs: dict, report: dict, accessed: datetime) -> str:
     year = report["aquisicao_utc"][:4]
-    scl = "\n".join(f"  {k}: {v}%" for k, v in sorted(report["scl_pct"].items()))
+    scl = "\n".join(f"  {k}: {v}%" for k, v in report["scl_pct"].items())  # ordem da SCL
     files = "\n".join(f"  {v}  {k}" for k, v in report["sha256"].items())
     sources = "\n".join(f"  {k}: {v}" for k, v in hrefs.items())
     return f"""PROCEDÊNCIA DOS DADOS
@@ -253,6 +265,7 @@ Termos de dados Sentinel indicados pela coleção de origem:
 Verificação no recorte (gerada por scripts/baixar_cena.py):
   pixels sem dado: {report["pixels_sem_dado_pct"]}%
   pixels válidos pela SCL (classes 4-7): {report["pixels_validos_scl_pct"]}%
+  pixels zerados em *_segunda_data.tif: {report["pixels_mascarados"]}
   classes da SCL:
 {scl}
 
@@ -262,11 +275,14 @@ SHA-256:
 
 
 def fetch_item(item_id: str) -> dict:
-    if not item_id.replace("_", "").isalnum():
+    if not re.fullmatch(r"[A-Za-z0-9_]{1,80}", item_id):
         raise SceneError("id de cena inválido")
     r = httpx.get(STAC + item_id, timeout=30, follow_redirects=False)
     r.raise_for_status()
-    return r.json()
+    item = r.json()
+    if not isinstance(item, dict) or item.get("id") != item_id:
+        raise SceneError("o catálogo devolveu outro item")
+    return item
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -275,10 +291,17 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--grade", type=Path, required=True, help="GeoTIFF que define CRS e recorte")
     ap.add_argument("--saida", type=Path, required=True)
     ap.add_argument("--prefixo", required=True)
+    ap.add_argument(
+        "--acessado",
+        type=lambda v: datetime.strptime(v, "%Y-%m-%d").replace(tzinfo=UTC),
+        help="data de acesso a registrar (AAAA-MM-DD); padrão: hoje. Fixe para refazer "
+        "o recorte sem mudar a atribuição",
+    )
     a = ap.parse_args(argv)
     try:
-        report = extract(fetch_item(a.item), a.grade, a.saida, a.prefixo)
-    except (SceneError, httpx.HTTPError, rasterio.errors.RasterioIOError) as e:
+        item = fetch_item(a.item)
+        report = extract(item, a.grade, a.saida, a.prefixo, DATA_PREFIX, accessed=a.acessado)
+    except (SceneError, httpx.HTTPError, rasterio.errors.RasterioIOError, KeyError, TypeError) as e:
         print(f"erro: {e}", file=sys.stderr)
         return 1
     for k, v in report.items():

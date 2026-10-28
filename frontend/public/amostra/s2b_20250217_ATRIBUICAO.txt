@@ -25,13 +25,14 @@ https://sentinel.esa.int/documents/247904/690755/Sentinel_Data_Legal_Notice
 Verificação no recorte (gerada por scripts/baixar_cena.py):
   pixels sem dado: 0.0%
   pixels válidos pela SCL (classes 4-7): 100.0%
+  pixels zerados em *_segunda_data.tif: 8
   classes da SCL:
-  não classificado: 0.07%
-  solo exposto: 6.95%
-  vegetação: 92.98%
   área escura/topografia: 0.0%
+  vegetação: 92.98%
+  solo exposto: 6.95%
+  não classificado: 0.07%
 
 SHA-256:
-  848761e2aebfc808f5b8745a781c6be4472f1c6bdc295629cce07479bd79736c  s2b_20250217_imagem.tif
-  fad3b06c50df4d65bcf3578662e9a107b031e5f1174c5094db7c6c3dd3d7aa48  s2b_20250217_scl.tif
-  6afcb36f0e918a6bc7628dff7f86e5d0dc443b5b5569c99ec8be5a77d7658736  s2b_20250217_segunda_data.tif
+  0cfe13bec38688a21ca27eacf38acba3bc8338a3725c6ba22f84aff15eb4a5ea  s2b_20250217_imagem.tif
+  b81a55423413aef6357395202a35676f1a31f3036f4c74e9ff625a8c1878bcb4  s2b_20250217_scl.tif
+  a832d08226b5d291e79bfede6539cc4fa4e183915bc18cfd0cfa67a33a8c08d3  s2b_20250217_segunda_data.tif

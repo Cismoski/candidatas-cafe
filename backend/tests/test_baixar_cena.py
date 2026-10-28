@@ -102,6 +102,9 @@ def test_window_is_exact_crop_with_tags_and_band_names(tile):
         assert tags["ATTRIBUTION"] == "Contains modified Copernicus Sentinel data (2025)"
     with rasterio.open(out / "fev_scl.tif") as s:
         assert s.shape == (N // 2, N // 2) and s.res == (20, 20)
+        # a atribuição acompanha também a SCL
+        assert s.tags()["ATTRIBUTION"] == "Contains modified Copernicus Sentinel data (2025)"
+        assert s.tags()["TERMS"] == bc.TERMS
 
 
 def test_second_date_masks_invalid_scl_as_nodata(tile):
@@ -239,3 +242,60 @@ def test_missing_asset_rejected(tile):
 def test_invalid_item_id_never_hits_network(item_id):
     with pytest.raises(bc.SceneError):
         bc.fetch_item(item_id)
+
+
+def test_asset_with_unexpected_resolution_is_rejected(tile):
+    """Regressão: a janela usa a resolução esperada; SCL de 10 m lida como 20 m
+    cobriria metade do recorte sem erro."""
+    item, ref, out = tile
+    item["assets"]["scl"]["href"] = item["assets"]["red"]["href"]  # arquivo de 10 m
+    with pytest.raises(bc.SceneError, match="resolução"):
+        bc.extract(item, ref, out, "x", allowed_prefix=None)
+
+
+def test_catalog_returning_other_item_is_rejected(monkeypatch):
+    class R:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"id": "OUTRO"}
+
+    monkeypatch.setattr(bc.httpx, "get", lambda *a, **k: R())
+    with pytest.raises(bc.SceneError, match="outro item"):
+        bc.fetch_item("S2B_T23KLS_20250217T132718_L2A")
+
+
+@pytest.mark.parametrize("item_id", ["S2B_é", "a" * 81, ""])
+def test_item_id_ascii_and_length(item_id):
+    with pytest.raises(bc.SceneError):
+        bc.fetch_item(item_id)
+
+
+def test_cli_fixed_access_date_is_reproducible(tile, monkeypatch, capsys):
+    item, ref, out = tile
+    monkeypatch.setattr(bc, "fetch_item", lambda _: item)
+    monkeypatch.setattr(bc, "DATA_PREFIX", None)
+    args = [
+        item["id"],
+        "--grade",
+        str(ref),
+        "--saida",
+        str(out),
+        "--prefixo",
+        "r",
+        "--acessado",
+        "2026-10-28",
+    ]
+    assert bc.main(args) == 0
+    first = (out / "r_ATRIBUICAO.txt").read_text()
+    assert bc.main(args) == 0
+    assert (out / "r_ATRIBUICAO.txt").read_text() == first and "28/10/2026" in first
+
+
+def test_cli_reports_malformed_catalog_without_traceback(tile, monkeypatch, capsys):
+    item, ref, out = tile
+    del item["properties"]
+    monkeypatch.setattr(bc, "fetch_item", lambda _: item)
+    assert bc.main([item["id"], "--grade", str(ref), "--saida", str(out), "--prefixo", "r"]) == 1
+    assert capsys.readouterr().err.startswith("erro:")

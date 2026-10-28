@@ -90,7 +90,7 @@ quando a imagem principal é de outubro a março.
 # recorte (da raiz do repositório)
 uv run scripts/baixar_cena.py S2B_T23KLS_20250217T132718_L2A \
   --grade frontend/public/amostra/imagem_multiespectral.tif \
-  --saida frontend/public/amostra --prefixo s2b_20250217
+  --saida frontend/public/amostra --prefixo s2b_20250217 --acessado 2026-10-28
 ```
 
 Na interface: "Cenas de exemplo", em seguida "16 ago 2025 (seca)", "17 fev 2025
