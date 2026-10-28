@@ -171,7 +171,9 @@ def default_chat_model(settings: Settings) -> ChatModel | None:
     key = settings.gemini_api_key.get_secret_value() if settings.gemini_api_key else ""
     if not key.strip():
         return None
-    return GeminiChat(key, settings.gemini_model, settings.gemini_timeout_seconds)
+    return GeminiChat(
+        key, settings.gemini_model, settings.gemini_timeout_seconds, settings.chat_max_concurrent
+    )
 
 
 # --- retenção -------------------------------------------------------------------
@@ -457,7 +459,11 @@ def create_app(
     @app.get("/analyses/{analysis_id}/chat", response_model=ChatOut)
     def get_chat(analysis_id: str, user: User):
         a = _done(analysis_id, user)
-        return ChatOut(messages=[_intro(a), *db.list_chat(analysis_id, user.id)])
+        used = db.quota_used(user.id, "chat", timedelta(days=1))
+        return ChatOut(
+            messages=[_intro(a), *db.list_chat(analysis_id, user.id)],
+            remaining_today=max(0, settings.chat_messages_per_day - used),
+        )
 
     @app.post("/analyses/{analysis_id}/chat", response_model=ChatOut)
     @limiter.limit("10/minute", key_func=user_or_ip)
@@ -476,12 +482,17 @@ def create_app(
                 f"Limite de {settings.chat_messages_per_day} perguntas por dia atingido. "
                 "As respostas já dadas continuam aqui.",
             ) from None
-        history = db.list_chat(analysis_id, user.id, limit=2 * chat.HISTORY_TURNS)
-        answer = chat.respond(
-            question, a["summary"], history, app.state.chat_model, app.state.breaker
-        )
-        rows = db.add_chat_exchange(analysis_id, user.id, question, answer)
+        try:
+            history = db.list_chat(analysis_id, user.id, limit=chat.HISTORY_MESSAGES)
+            answer = chat.respond(
+                question, a["summary"], history, app.state.chat_model, app.state.breaker
+            )
+            rows = db.add_chat_exchange(analysis_id, user.id, question, answer)
+        except Exception:
+            db.release_quota(user.id, "chat")  # a pergunta não foi respondida
+            raise
         if rows is None:  # apagada enquanto o modelo respondia
+            db.release_quota(user.id, "chat")
             raise NOT_FOUND
         return ChatOut(messages=rows, remaining_today=remaining)
 

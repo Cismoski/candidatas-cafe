@@ -166,3 +166,24 @@ def test_analysis_deleted_while_model_answers(env, model):
     assert ask(c, alice, aid).status_code == 404
     with c.app.state.db.connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM chat_messages").fetchone()[0] == 0
+        # a pergunta não respondida não gasta cota
+        assert (
+            conn.execute("SELECT COUNT(*) FROM usage_events WHERE kind = 'chat'").fetchone()[0] == 0
+        )
+
+
+def test_unexpected_error_refunds_quota(env, model):
+    c, alice, aid, a = env
+    model.error = RuntimeError("bug")
+    with pytest.raises(RuntimeError):
+        ask(c, alice, aid)
+    model.error = None
+    assert ask(c, alice, aid).json()["remaining_today"] == 4
+
+
+def test_get_reports_remaining_quota(env):
+    c, alice, aid, a = env
+    url = f"/analyses/{aid}/chat"
+    assert c.get(url, headers=alice).json()["remaining_today"] == 5
+    ask(c, alice, aid)
+    assert c.get(url, headers=alice).json()["remaining_today"] == 4

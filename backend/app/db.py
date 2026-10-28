@@ -160,6 +160,13 @@ class Database:
             )
 
     # --- cotas -------------------------------------------------------------------
+    def quota_used(self, user_id: str, kind: str, window: timedelta) -> int:
+        with self.connect() as c:
+            return c.execute(
+                "SELECT COUNT(*) FROM usage_events WHERE user_id = ? AND kind = ? AND created_at > ?",
+                (user_id, kind, iso(now() - window)),
+            ).fetchone()[0]
+
     def consume_quota(self, user_id: str, kind: str, limit: int, window: timedelta) -> int:
         """Registra um uso se ainda houver cota na janela; devolve quantos restam.
 
@@ -185,7 +192,7 @@ class Database:
         with self.connect() as c:
             c.execute(
                 "DELETE FROM usage_events WHERE rowid = (SELECT rowid FROM usage_events "
-                "WHERE user_id = ? AND kind = ? ORDER BY created_at DESC LIMIT 1)",
+                "WHERE user_id = ? AND kind = ? ORDER BY rowid DESC LIMIT 1)",
                 (user_id, kind),
             )
 
