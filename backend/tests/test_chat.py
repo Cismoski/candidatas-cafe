@@ -242,7 +242,7 @@ def test_automatic_two_dates():
 
 def test_no_polygons():
     s = summary(candidate_polygons=0, candidate_area_ha=0.0, polygons=[])
-    assert "nenhuma área passou" in chat.introduction(s, "X")
+    assert "nenhuma área passou" in chat.introduction(s)
     assert (
         chat.automatic_answer("maior polígono", s) == "Esta análise não tem polígonos candidatos."
     )
@@ -250,7 +250,7 @@ def test_no_polygons():
 
 
 def test_introduction_presents_classification():
-    intro = chat.introduction(S, "Guaxupé")
+    intro = chat.introduction(S)
     for part in ["16/08/2025", "3 polígonos candidatos", "155,31 ha", "5,9%", "não há acurácia"]:
         assert part in intro
     assert chat.unsupported_numbers(intro, ALLOWED) == []

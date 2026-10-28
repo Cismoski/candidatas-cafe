@@ -237,17 +237,17 @@ def _cls(summary: dict, key: str) -> float:
     return summary["results"]["class_areas"][key]["area_ha"]
 
 
-def introduction(summary: dict, title: str) -> str:
+def introduction(summary: dict) -> str:
     r, m, inp = summary["results"], summary["method"], summary["inputs"]
     date = _date_br(inp["primary"].get("acquired_utc"))
     if r["candidate_polygons"] == 0:
         head = (
-            f"Na imagem de {date} ({title}) nenhuma área passou em todas as regras: "
+            f"Na imagem de {date}, nenhuma área passou em todas as regras: "
             "não há candidatas a café nesta cena."
         )
     else:
         head = (
-            f"Na imagem de {date} ({title}) encontrei {r['candidate_polygons']} "
+            f"Na imagem de {date}, encontrei {r['candidate_polygons']} "
             f"{'polígono candidato' if r['candidate_polygons'] == 1 else 'polígonos candidatos'} "
             f"a café, somando {_ha(r['candidate_area_ha'])}, ou {_pct(r['candidate_fraction_of_analysed'])} "
             f"dos {_ha(r['analysed_area_ha'])} analisados."
@@ -366,12 +366,11 @@ def automatic_answer(question: str, summary: dict) -> str:
 
 
 # --- orquestração ------------------------------------------------------------------------------
-NOTICE_NO_MODEL = "Assistente de IA não configurado: resposta automática com os números da análise."
-NOTICE_OPEN = "O assistente de IA está instável; por alguns minutos as respostas são automáticas."
-NOTICE_FAILED = "O assistente de IA não respondeu a tempo; resposta automática."
+NOTICE_NO_MODEL = "O assistente de IA não está configurado neste servidor."
+NOTICE_OPEN = "O assistente de IA está instável; volta a ser usado em alguns minutos."
+NOTICE_FAILED = "O assistente de IA não respondeu a tempo."
 NOTICE_GUARD = (
-    "A resposta da IA citou números que não estão no processamento e foi descartada; "
-    "resposta automática."
+    "A resposta da IA citou números que não estão no processamento e foi descartada."
 )
 
 

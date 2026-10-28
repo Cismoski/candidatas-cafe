@@ -448,7 +448,7 @@ def create_app(
         return {
             "id": 0,
             "role": "assistant",
-            "content": chat.introduction(a["summary"], a["title"]),
+            "content": chat.introduction(a["summary"]),
             "source": "automatica",
             "notice": None,
             "created_at": a["updated_at"],
