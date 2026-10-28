@@ -15,11 +15,14 @@ PROTECTED = [
     ("get", "/analyses/00000000-0000-0000-0000-000000000000"),
     ("get", "/analyses/00000000-0000-0000-0000-000000000000/files/geojson"),
     ("delete", "/analyses/00000000-0000-0000-0000-000000000000"),
+    ("get", "/analyses/00000000-0000-0000-0000-000000000000/chat"),
+    ("post", "/analyses/00000000-0000-0000-0000-000000000000/chat"),
 ]
 
 
 def test_health_is_public(client):
-    assert client.get("/health").json() == {"status": "ok"}
+    # sem GEMINI_API_KEY nos testes: assistente em modo automático
+    assert client.get("/health").json() == {"status": "ok", "assistente": "automatico"}
 
 
 @pytest.mark.parametrize(("method", "path"), PROTECTED)

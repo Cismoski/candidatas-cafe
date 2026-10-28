@@ -39,8 +39,14 @@ class Settings(BaseSettings):
     # False só nos testes: roda o pipeline no mesmo processo
     job_isolation: bool = True
 
-    # Chat (fase 4)
+    # Chat. Sem chave o assistente usa só as respostas automáticas (determinísticas).
+    gemini_api_key: SecretStr | None = None
+    gemini_model: str = "gemini-2.5-flash-lite"
+    gemini_timeout_seconds: float = Field(default=15, gt=0, le=60)
     chat_messages_per_day: int = Field(default=30, ge=1)
+    # Circuit breaker do Gemini: N falhas seguidas abrem o circuito por N segundos
+    chat_breaker_failures: int = Field(default=3, ge=1)
+    chat_breaker_cooldown_seconds: int = Field(default=120, ge=1)
 
     # Retenção
     retention_hours: int = Field(default=24, ge=1)

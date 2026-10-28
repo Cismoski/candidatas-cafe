@@ -21,6 +21,7 @@ from starlette.datastructures import UploadFile
 from starlette.formparsers import MultiPartException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from . import chat
 from .auth import (
     BearerPrecheckMiddleware,
     CurrentUser,
@@ -30,8 +31,10 @@ from .auth import (
     issue_token,
     verify_google_id_token,
 )
+from .breaker import CircuitBreaker
 from .db import Database, DuplicateRequest, QuotaExceeded, now
 from .jobs import JobRunner
+from .llm import ChatModel, GeminiChat
 from .processing.config import ClassificationConfig, load_config
 from .ratelimit import RateLimitMiddleware
 from .settings import Settings, get_settings
@@ -142,7 +145,33 @@ def _out(a: dict, retention_h: int, model: type[AnalysisItem] = AnalysisOut) -> 
     return model(**a, expires_at=expires.isoformat(timespec="seconds"))
 
 
+class ChatIn(BaseModel):
+    message: str = Field(min_length=1, max_length=chat.MAX_MESSAGE_CHARS)
+
+
+class ChatMessage(BaseModel):
+    id: int
+    role: Literal["user", "assistant"]
+    content: str
+    source: Literal["gemini", "automatica"] | None
+    notice: str | None
+    created_at: str
+
+
+class ChatOut(BaseModel):
+    messages: list[ChatMessage]
+    remaining_today: int | None = None
+
+
 NOT_FOUND = HTTPException(404, "Análise não encontrada.")
+_DEFAULT = object()
+
+
+def default_chat_model(settings: Settings) -> ChatModel | None:
+    key = settings.gemini_api_key.get_secret_value() if settings.gemini_api_key else ""
+    if not key.strip():
+        return None
+    return GeminiChat(key, settings.gemini_model, settings.gemini_timeout_seconds)
 
 
 # --- retenção -------------------------------------------------------------------
@@ -174,6 +203,7 @@ def create_app(
     settings: Settings | None = None,
     google_verifier: GoogleVerifier = verify_google_id_token,
     classification: ClassificationConfig | None = None,
+    chat_model: ChatModel | None | object = _DEFAULT,
 ) -> FastAPI:
     settings = settings or get_settings()
 
@@ -198,6 +228,10 @@ def create_app(
         app.state.cfg,
         isolate=settings.job_isolation,
         timeout_s=settings.job_timeout_seconds,
+    )
+    app.state.chat_model = default_chat_model(settings) if chat_model is _DEFAULT else chat_model
+    app.state.breaker = CircuitBreaker(
+        settings.chat_breaker_failures, settings.chat_breaker_cooldown_seconds
     )
     # Um limiter por app, em memória do processo. O deploy roda 1 worker numa
     # única instância; com réplicas, o storage precisaria ser Redis.
@@ -248,7 +282,8 @@ def create_app(
     @app.get("/health")
     @limiter.exempt
     async def health():  # async: não depende do threadpool
-        return {"status": "ok"}
+        assistant = "automatico" if app.state.chat_model is None else app.state.breaker.state
+        return {"status": "ok", "assistente": assistant}
 
     @app.post("/auth/google", response_model=Session)
     @limiter.limit("10/minute")
@@ -401,6 +436,54 @@ def create_app(
         if a is None:
             raise NOT_FOUND  # 404 também para análise de outro usuário: não revela existência
         return a
+
+    def _done(analysis_id: str, user: CurrentUser) -> dict:
+        a = _owned(analysis_id, user)
+        if a["status"] != "done" or not a["summary"]:
+            raise HTTPException(409, "O assistente fica disponível quando a análise terminar.")
+        return a
+
+    def _intro(a: dict) -> dict:
+        # Abertura por template (não gravada): números exatos e sem gastar cota
+        return {
+            "id": 0,
+            "role": "assistant",
+            "content": chat.introduction(a["summary"], a["title"]),
+            "source": "automatica",
+            "notice": None,
+            "created_at": a["updated_at"],
+        }
+
+    @app.get("/analyses/{analysis_id}/chat", response_model=ChatOut)
+    def get_chat(analysis_id: str, user: User):
+        a = _done(analysis_id, user)
+        return ChatOut(messages=[_intro(a), *db.list_chat(analysis_id, user.id)])
+
+    @app.post("/analyses/{analysis_id}/chat", response_model=ChatOut)
+    @limiter.limit("10/minute", key_func=user_or_ip)
+    def post_chat(request: Request, analysis_id: str, body: ChatIn, user: User):
+        question = " ".join(body.message.split())
+        if not question:
+            raise HTTPException(422, "Escreva uma pergunta.")
+        a = _done(analysis_id, user)
+        try:
+            remaining = db.consume_quota(
+                user.id, "chat", settings.chat_messages_per_day, timedelta(days=1)
+            )
+        except QuotaExceeded:
+            raise HTTPException(
+                429,
+                f"Limite de {settings.chat_messages_per_day} perguntas por dia atingido. "
+                "As respostas já dadas continuam aqui.",
+            ) from None
+        history = db.list_chat(analysis_id, user.id, limit=2 * chat.HISTORY_TURNS)
+        answer = chat.respond(
+            question, a["summary"], history, app.state.chat_model, app.state.breaker
+        )
+        rows = db.add_chat_exchange(analysis_id, user.id, question, answer)
+        if rows is None:  # apagada enquanto o modelo respondia
+            raise NOT_FOUND
+        return ChatOut(messages=rows, remaining_today=remaining)
 
     @app.get("/analyses/{analysis_id}", response_model=AnalysisOut)
     def get_analysis(analysis_id: str, user: User):

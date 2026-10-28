@@ -52,6 +52,17 @@ CREATE TABLE IF NOT EXISTS usage_events (
     created_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_usage_user_kind_time ON usage_events(user_id, kind, created_at);
+-- Conversa do assistente: morre junto com a análise (delete, retenção, purge LGPD)
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    analysis_id TEXT NOT NULL REFERENCES analyses(id) ON DELETE CASCADE,
+    role        TEXT NOT NULL CHECK (role IN ('user','assistant')),
+    content     TEXT NOT NULL,
+    source      TEXT CHECK (source IN ('gemini','automatica')),
+    notice      TEXT,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_chat_analysis ON chat_messages(analysis_id, id);
 """
 
 
@@ -320,6 +331,55 @@ class Database:
                 (iso(inactive_users_before),),
             )
             return [(r["owner_id"], r["id"]) for r in rows]
+
+    # --- chat ------------------------------------------------------------------------
+    def add_chat_exchange(
+        self, analysis_id: str, owner_id: str, question: str, answer: dict
+    ) -> list[dict] | None:
+        """Grava pergunta e resposta juntas (nunca uma pergunta sem resposta).
+
+        Devolve None se a análise não existe mais ou não é do usuário (apagada
+        enquanto o modelo respondia): nada é gravado.
+        """
+        ts = iso(now())
+        with self.transaction() as c:
+            owned = c.execute(
+                "SELECT 1 FROM analyses WHERE id = ? AND owner_id = ?", (analysis_id, owner_id)
+            ).fetchone()
+            if not owned:
+                return None
+            rows = []
+            for role, content, source, notice in (
+                ("user", question, None, None),
+                ("assistant", answer["content"], answer["source"], answer.get("notice")),
+            ):
+                cur = c.execute(
+                    "INSERT INTO chat_messages (analysis_id, role, content, source, notice, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (analysis_id, role, content, source, notice, ts),
+                )
+                rows.append(
+                    {
+                        "id": cur.lastrowid,
+                        "role": role,
+                        "content": content,
+                        "source": source,
+                        "notice": notice,
+                        "created_at": ts,
+                    }
+                )
+            return rows
+
+    def list_chat(self, analysis_id: str, owner_id: str, limit: int = 200) -> list[dict]:
+        """Mensagens em ordem cronológica; o JOIN garante o dono."""
+        with self.connect() as c:
+            rows = c.execute(
+                "SELECT m.id, m.role, m.content, m.source, m.notice, m.created_at "
+                "FROM chat_messages m JOIN analyses a ON a.id = m.analysis_id "
+                "WHERE m.analysis_id = ? AND a.owner_id = ? ORDER BY m.id DESC LIMIT ?",
+                (analysis_id, owner_id, limit),
+            ).fetchall()
+            return [dict(r) for r in reversed(rows)]
 
     def analysis_ids(self) -> set[str]:
         with self.connect() as c:
