@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # Imagens fixadas por digest (lista multi-arquitetura). Para atualizar:
 #   docker pull python:3.13-slim && docker inspect --format '{{index .RepoDigests 0}}' python:3.13-slim
 ARG PYTHON_IMAGE=python:3.13-slim@sha256:2d44738ebf4ce5f63b9d9ea871e9c7cfdc0426f7b0c97cac915fd88ded1d86bb
@@ -29,6 +28,9 @@ COPY --from=build /opt/venv /opt/venv
 WORKDIR /app
 COPY app ./app
 COPY config ./config
+# Pré-compila o app: cada análise roda num subprocesso novo, e com
+# PYTHONDONTWRITEBYTECODE ele recompilaria tudo a cada job (0,1 CPU no Render)
+RUN python -m compileall -q app
 ENV PATH=/opt/venv/bin:$PATH PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 \
     DATA_DIR=/data PORT=8000
 USER 10001:10001
