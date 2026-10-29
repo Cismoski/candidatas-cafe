@@ -2,6 +2,7 @@
 
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -89,6 +90,19 @@ def _safe_tag(value: str | None, pattern: re.Pattern) -> str | None:
     return value if value is not None and pattern.fullmatch(value) else None
 
 
+def _safe_date(value: str | None) -> str | None:
+    """Formato ISO E data que existe: "2025-13-45" passa no regex, mas quebraria
+    quem formata a data depois (chat, rótulo do PNG)."""
+    value = _safe_tag(value, ISO_DATETIME)
+    if value is None:
+        return None
+    try:
+        datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return value
+
+
 BAND_ORDER = ("blue", "green", "red", "nir")
 
 
@@ -112,7 +126,7 @@ def _scene_from_dn(dn, ds, grid: Grid, cfg: ClassificationConfig) -> Scene:
     return Scene(
         grid=grid,
         valid=valid,
-        acquired_utc=_safe_tag(tags.get("ACQUISITION_UTC"), ISO_DATETIME),
+        acquired_utc=_safe_date(tags.get("ACQUISITION_UTC")),
         source_item=_safe_tag(tags.get("SOURCE_ITEM"), ITEM_ID),
         radiometry_source=source,
         **bands,

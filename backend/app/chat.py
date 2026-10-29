@@ -347,9 +347,10 @@ def _pct(v: float) -> str:
 
 
 def _date_br(iso: str | None) -> str:
-    if not iso:
+    try:
+        return datetime.fromisoformat(iso.replace("Z", "+00:00")).strftime("%d/%m/%Y")
+    except (AttributeError, ValueError):  # None ou summary antigo com data inválida
         return "data desconhecida"
-    return datetime.fromisoformat(iso.replace("Z", "+00:00")).strftime("%d/%m/%Y")
 
 
 def _cls(summary: dict, key: str) -> float:

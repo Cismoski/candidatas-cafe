@@ -525,3 +525,11 @@ def test_reference_absent(ref):
     assert "referencia_mapbiomas" not in chat.build_context(s)
     assert "não está disponível" in chat.automatic_answer("e o MapBiomas?", s)
     assert "concordância com o MapBiomas" not in chat.automatic_answer("qual a acurácia?", s)
+
+
+@pytest.mark.parametrize("bad", ["2025-13-45", "2025-02-30T10:00:00Z", None])
+def test_invalid_or_missing_date_never_breaks_the_introduction(bad):
+    """Regressão: summary com data inexistente fazia GET/POST do chat responder 500."""
+    s = summary()
+    s["inputs"]["primary"]["acquired_utc"] = bad
+    assert "data desconhecida" in chat.introduction(s)

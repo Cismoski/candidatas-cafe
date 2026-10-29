@@ -107,6 +107,10 @@ def test_all_nodata_scene_renders_black_and_has_no_candidates(tmp_path, cfg):
             None,
             None,
         ),
+        # formato certo, data inexistente: derrubava o chat (500) depois do processamento
+        ({"ACQUISITION_UTC": "2025-13-45"}, None, None),
+        ({"ACQUISITION_UTC": "2025-02-30T10:00:00Z"}, None, None),
+        ({"ACQUISITION_UTC": "2024-02-29"}, "2024-02-29", None),  # BVA: bissexto existe
     ],
 )
 def test_file_tags_are_sanitized_before_reaching_summary(tmp_path, cfg, tags, date, item):
@@ -115,7 +119,7 @@ def test_file_tags_are_sanitized_before_reaching_summary(tmp_path, cfg, tags, da
     s = run_analysis(p, tmp_path / "o", cfg)
     assert s["inputs"]["primary"]["acquired_utc"] == date
     assert s["inputs"]["primary"]["source_item"] == item
-    suffix = " (2025)" if date else ""
+    suffix = f" ({date[:4]})" if date else ""
     assert s["attribution"] == "Contains modified Copernicus Sentinel data" + suffix
 
 
