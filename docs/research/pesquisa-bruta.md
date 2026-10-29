@@ -144,3 +144,13 @@ Notas:
 - Nodata de ~52% nas cenas R038 significa que o tile está na borda do swath. A bbox está coberta (nodata local de 0%), mas convém checar de novo se a área mudar.
 - As cenas R138 (~10% de nodata) têm outro ângulo de visada; servem como alternativa.
 - Script de busca e recorte: executado em sandbox (Python + GDAL 3.13), sem arquivo persistido no repositório.
+
+---
+
+## 6. Conferências feitas na fase 7 (28/10/2026)
+
+- **Otsu, N. (1979).** A Threshold Selection Method from Gray-Level Histograms. *IEEE Transactions on Systems, Man, and Cybernetics* 9(1), 62–66. DOI https://doi.org/10.1109/TSMC.1979.4310076. Metadados (título, autor, volume, páginas) conferidos na API do Crossref (`api.crossref.org/works/10.1109/TSMC.1979.4310076`); texto não aberto. Confiança: Alta (link).
+- **Souza Jr., C. M. et al. (2020).** Reconstructing Three Decades of Land Use and Land Cover Changes in Brazilian Biomes with Landsat Archive and Earth Engine. *Remote Sensing* 12(17), 2735. DOI https://doi.org/10.3390/rs12172735. Título, licença (CC BY 4.0) e resumo lidos no Crossref. O resumo descreve Random Forest sobre o arquivo Landsat no Google Earth Engine, 30 m, 1985–2017, acurácia global média de 89% (73–95% por bioma). Confiança: Alta.
+- **OpenFreeMap** (https://openfreemap.org/, lido): a instância pública é gratuita, sem limite de visualizações ou requisições, sem cadastro, chave ou cookies. Os dados do mapa vêm do OpenStreetMap. O TileJSON (`tiles.openfreemap.org/planet`) declara a atribuição "OpenFreeMap © OpenMapTiles Data from OpenStreetMap", com link para https://www.openstreetmap.org/copyright. O MapLibre a exibe no controle de atribuição do app.
+- **OpenStreetMap** (https://www.openstreetmap.org/copyright, lido): os dados estão sob ODbL. Quem usa precisa dar crédito ao OpenStreetMap e deixar claro que os dados estão sob a ODbL, por exemplo com um link para a página de copyright.
+- **Validade das geometrias na cena do kit**: rodei `python -m app.processing` com a imagem e a SCL do kit (sem MapBiomas). O GeoJSON saiu com 90 polígonos, 0 inválidos (`shapely.is_valid`).
