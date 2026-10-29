@@ -51,7 +51,7 @@ Render (Docker, free) · Cloudflare Pages (estático, CSP em _headers)
 | `backend/app/processing/` | Pipeline: leitura e validação, radiometria, índices, classificação, vetorização, renderização, referência MapBiomas |
 | `backend/app/ports.py` | Contratos (`Protocol`) do que a API usa de fora: identidade, modelo de chat, repositório, arquivos, fila |
 | `backend/app/main.py` | Raiz de composição: liga cada port ao adaptador (`db.py` SQLite, `storage.py` disco, `jobs.py` subprocesso, `auth.py` Google, `llm.py` Gemini) e monta os middlewares |
-| `backend/app/api/` | Rotas por assunto (sessão, análises, chat), schemas e middlewares; só falam com os ports |
+| `backend/app/api/` | Rotas por assunto (sessão, análises, chat), schemas e middlewares. Banco, arquivos, fila, identidade e modelo chegam pelos ports; validação de upload e emissão do JWT são funções da própria app |
 | `backend/app/values.py` | Value objects validados na criação: `AnalysisId`, `IdempotencyKey`, `AnalysisTitle`, `AcquisitionDate` |
 | `backend/app/chat/` | Assistente: contexto, guarda numérica (com os value objects `Quantity` e `Allowed`), respostas automáticas, orquestração |
 | `backend/config/classification.yaml` | Todos os limiares (nada fixo no código) |
@@ -68,8 +68,9 @@ Por que assim:
 - **Ports and adapters, na medida:** as rotas recebem um `Services` com os
   ports, e os testes trocam o Google e o Gemini por falsos passando outro objeto
   para `create_app`. O processamento ficou de fora de propósito: são funções
-  puras sobre arrays, já testáveis sem port. `tests/test_ports.py` confere que
-  cada adaptador tem a assinatura do seu port.
+  puras sobre arrays, já testáveis sem port. `tests/test_ports.py` confere nomes,
+  ordem e padrões dos parâmetros de cada adaptador contra o port (não os tipos:
+  o projeto não roda checador de tipos).
 - **Value objects onde havia validação espalhada:** id malformado, chave de
   idempotência, título e data inválida eram checados nas rotas ou estouravam ao
   formatar (o 500 da data inexistente). Agora são validados uma vez, na criação,

@@ -104,7 +104,7 @@ Configurar em Settings > Secrets and variables > Actions > Variables:
 | Análises | 10 por usuário/dia; 3/min por usuário; 30/dia por IP | `UPLOADS_PER_DAY`, `api/routes_analyses.py` |
 | Fila | 4 análises esperando (todas as contas); acima disso, 503 | `MAX_QUEUED_JOBS` |
 | Tempo por análise | 300 s; estourou, a análise falha (a cota não volta: o processamento foi gasto). A cota só é devolvida se o envio falhar antes de entrar na fila | `JOB_TIMEOUT_SECONDS` |
-| Chat | 30 mensagens por usuário/dia; 10/min; 4 chamadas simultâneas ao Gemini | `CHAT_*` |
+| Chat | 30 mensagens por usuário/dia; 10/min; 4 chamadas simultâneas ao Gemini | `CHAT_*` (o 10/min está fixo em `api/routes_chat.py`) |
 | Login | 10/min por IP | `api/routes_auth.py` |
 | Geral | 120 req/min por IP | `main.py` (limiter) |
 | Sessão | JWT de 60 min | `JWT_TTL_MINUTES` |
