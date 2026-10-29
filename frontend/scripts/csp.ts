@@ -28,8 +28,9 @@ export function buildCsp(apiUrl: string): string {
     "script-src": ["'self'", `${GSI}client`],
     // GIS injeta estilos; MapLibre usa style inline em elementos
     "style-src": ["'self'", "'unsafe-inline'", `${GSI}style`],
-    // data: ícones dos controles do MapLibre
-    "img-src": ["'self'", "data:", TILES],
+    // data: ícones dos controles do MapLibre; blob: miniatura da classificação
+    // no chat (PNG baixado com Bearer e exibido via URL.createObjectURL)
+    "img-src": ["'self'", "data:", "blob:", TILES],
     "font-src": ["'self'"],
     "connect-src": ["'self'", api, GSI, TILES],
     "frame-src": [GSI],

@@ -21,6 +21,13 @@ describe("CSP", () => {
     },
   );
 
+  it("blob: só em img-src (miniatura do chat), nunca em script-src/worker-src", () => {
+    const csp = buildCsp("https://api.exemplo.com");
+    expect(directive(csp, "img-src")).toContain("blob:");
+    expect(directive(csp, "script-src")).not.toContain("blob:");
+    expect(directive(csp, "worker-src")).not.toContain("blob:");
+  });
+
   it.each([["http://localhost:8000"], ["http://127.0.0.1:8000"]])("http só para a máquina local: %s", (url) => {
     expect(apiOrigin(url)).toBe(url);
   });
@@ -29,7 +36,9 @@ describe("CSP", () => {
     const csp = buildCsp("https://api.exemplo.com");
     expect(directive(csp, "script-src")).toEqual(["'self'", "https://accounts.google.com/gsi/client"]);
     expect(csp).not.toContain("unsafe-eval");
-    expect(csp).not.toContain("blob:");
+    for (const [name, values] of csp.split("; ").map((d) => [d.split(" ")[0], d.split(" ").slice(1)] as const)) {
+      if (name !== "img-src") expect(values, name).not.toContain("blob:");
+    }
     expect(directive(csp, "script-src")).not.toContain("'unsafe-inline'");
     expect(directive(csp, "frame-ancestors")).toEqual(["'none'"]);
     expect(directive(csp, "object-src")).toEqual(["'none'"]);
