@@ -91,7 +91,7 @@ export function ChatPanel({ analysisId, polygonIds, onFocusPolygon }: Props) {
       {onlyIntro && !pending && (
         <div className="chat__suggest" aria-label="Perguntas sugeridas">
           {SUGGESTIONS.map((s) => (
-            <button key={s} type="button" className="chip" onClick={() => send(s)}>
+            <button key={s} type="button" className="chip" disabled={remaining === 0} onClick={() => send(s)}>
               {s}
             </button>
           ))}

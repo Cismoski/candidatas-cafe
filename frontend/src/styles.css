@@ -1131,9 +1131,14 @@ details.block p,
   cursor: pointer;
 }
 
-.chip:hover {
+.chip:not(:disabled):hover {
   border-color: var(--ink);
   background: var(--ground);
+}
+
+.chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .chat__form {

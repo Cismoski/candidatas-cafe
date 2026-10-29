@@ -97,16 +97,32 @@ it("resposta automática mostra o aviso do motivo", async () => {
   expect(screen.queryByRole("button", { name: "Qual a acurácia?" })).not.toBeInTheDocument();
 });
 
-it("cota esgotada mostra a mensagem da API e mantém a conversa", async () => {
+it("cota esgotada mostra a mensagem da API, mantém a conversa e relê a cota", async () => {
+  let remaining = 1; // a outra aba gastou a última pergunta: o servidor sabe, a tela não
   mockFetch({
-    [`GET ${PATH}`]: () => json({ messages: [INTRO], remaining_today: 0 }),
-    [`POST ${PATH}`]: () => json({ detail: "Limite de 30 perguntas por dia atingido." }, 429),
+    [`GET ${PATH}`]: () => json({ messages: [INTRO], remaining_today: remaining }),
+    [`POST ${PATH}`]: () => {
+      remaining = 0;
+      return json({ detail: "Limite de 30 perguntas por dia atingido." }, 429);
+    },
   });
   const { user } = show();
   await user.click(await screen.findByRole("button", { name: "Qual é o maior polígono?" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("30 perguntas por dia");
   expect(screen.getByText(/90 polígonos candidatos/)).toBeInTheDocument();
-  expect(screen.getByText(/0 perguntas restantes hoje/)).toBeInTheDocument();
+  expect(await screen.findByText(/0 perguntas restantes hoje/)).toBeInTheDocument();
+});
+
+it("limite por minuto (429) não zera a cota do dia", async () => {
+  mockFetch({
+    [`GET ${PATH}`]: () => json({ messages: [INTRO], remaining_today: 12 }),
+    [`POST ${PATH}`]: () => json({ detail: "Muitas requisições (10 per 1 minute). Aguarde e tente de novo." }, 429),
+  });
+  const { user } = show();
+  await user.click(await screen.findByRole("button", { name: "Qual é o maior polígono?" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Aguarde");
+  expect(screen.getByText(/12 perguntas restantes hoje/)).toBeInTheDocument();
+  expect(screen.queryByText(/0 perguntas restantes hoje/)).toBeNull();
 });
 
 it("contador de cota aparece antes da primeira pergunta; com cota zerada não envia", async () => {
@@ -116,6 +132,7 @@ it("contador de cota aparece antes da primeira pergunta; com cota zerada não en
   expect(screen.getByText(/0 perguntas restantes hoje/)).toBeInTheDocument();
   await user.type(input, "qual a área?");
   expect(screen.getByRole("button", { name: "Perguntar" })).toBeDisabled();
+  expect(screen.queryByRole("button", { name: "Qual é o maior polígono?" })).toBeDisabled();
 });
 
 function WithTabs() {

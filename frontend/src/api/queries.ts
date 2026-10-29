@@ -133,8 +133,9 @@ export function useAsk(id: string) {
       }));
     },
     onError: (e) => {
+      // 429 pode ser a cota diária OU o limite por minuto: relê a cota real em vez de supor zero
       if (e instanceof ApiError && e.status === 429) {
-        qc.setQueryData<ChatOut>(keys.chat(id), (prev) => prev && { ...prev, remaining_today: 0 });
+        void qc.invalidateQueries({ queryKey: keys.chat(id) });
       }
     },
   });
