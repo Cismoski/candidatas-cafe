@@ -4,7 +4,7 @@ import re
 
 from ..values import AcquisitionDate
 from .context import mentioned_polygon_ids
-from .text import _norm
+from .text import norm
 
 
 def _ha(v: float) -> str:
@@ -78,7 +78,7 @@ def reference_answer(ref: dict) -> str:
 
 
 def automatic_answer(question: str, summary: dict) -> str:
-    q = _norm(question)
+    q = norm(question)
     r, m, inp = summary["results"], summary["method"], summary["inputs"]
     polys = r["polygons"]
     by_id = {p["id"]: p for p in polys}

@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 
-from .text import _norm
+from .text import norm
 
 FREE_INTEGERS = set(range(0, 13))
 
@@ -209,15 +209,15 @@ def unsupported_numbers(reply: str, allowed: Allowed) -> list[str]:
     do mesmo tipo, mais contagens de polígonos que não batem e frações por extenso."""
     bad = [q.token for q in parse_numbers(reply) if not allowed.supports(q)]
     # "3 mil" e "5 por cento" já foram lidos acima; o resto por extenso é recusado
-    norm = _norm(reply)
-    words = _NUMBER.sub(" ", norm)
+    plain = norm(reply)
+    words = _NUMBER.sub(" ", plain)
     bad += [m.group(0) for m in _NUMBER_WORDS.finditer(words)]
-    bad += [m.group(0) for m in _FRACTION_WORDS.finditer(norm)]
-    bad += re.findall(r"\d(?:[.,]\d+)?e[+-]?\d+", norm)  # notação científica: "1e3"
+    bad += [m.group(0) for m in _FRACTION_WORDS.finditer(plain)]
+    bad += re.findall(r"\d(?:[.,]\d+)?e[+-]?\d+", plain)  # notação científica: "1e3"
     # "7 polígonos" ou "sete talhões": inteiro pequeno não é livre quando é contagem
-    for m in _COUNT.finditer(norm):
+    for m in _COUNT.finditer(plain):
         n = int(m.group(1)) if m.group(1).isdigit() else _SMALL_WORDS[m.group(1)]
-        as_total = bool(_TOTAL_WORDS & set(re.findall(r"\w+", norm[: m.start()])[-2:]))
+        as_total = bool(_TOTAL_WORDS & set(re.findall(r"\w+", plain[: m.start()])[-2:]))
         if not allowed.supports_count(n, as_total):
             bad.append(m.group(0))
     return bad
@@ -228,7 +228,7 @@ def accuracy_claim(reply: str) -> bool:
     adjetivo como "alta precisão", "certamente", ou afirmação qualitativa como "o
     método acerta", "são confiáveis", "são café" sem negação antes). Falso
     positivo é barato: só troca a resposta pela automática."""
-    t = _norm(reply)
+    t = norm(reply)
     if _ACCURACY_ADJ.search(t):
         return True
     for m in _QUALITY_CLAIM.finditer(t):

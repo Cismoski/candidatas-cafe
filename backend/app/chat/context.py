@@ -5,7 +5,7 @@ import re
 from collections.abc import Iterable
 
 from ..values import AcquisitionDate
-from .text import _norm
+from .text import norm
 
 MAX_MESSAGE_CHARS = 500
 # Mensagens anteriores enviadas ao modelo (6 = as 3 últimas trocas pergunta/resposta)
@@ -56,7 +56,7 @@ def _poly(p: dict) -> dict:
 
 
 def mentioned_polygon_ids(text: str) -> list[int]:
-    t = _norm(text)
+    t = norm(text)
     pattern = r"(?:\bpoligono|\btalhao|\bn[o°º]\.?|#)\s*(?:n[o°º]?\.?\s*)?(\d{1,5})\b"
     return [int(m) for m in re.findall(pattern, t)]
 

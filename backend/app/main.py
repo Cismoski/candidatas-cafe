@@ -100,7 +100,6 @@ def create_app(
         breaker=CircuitBreaker(
             settings.chat_breaker_failures, settings.chat_breaker_cooldown_seconds
         ),
-        cfg=cfg,
         raster_limits=RasterLimits(max_dim=settings.max_raster_dim),
     )
 
