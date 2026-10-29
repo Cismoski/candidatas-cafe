@@ -62,17 +62,22 @@ it("tentativa pendurada é abortada pelo timeout por tentativa e repetida", asyn
   expect(calls).toHaveLength(2);
 });
 
-it("desiste depois de 90 s e mostra erro", async () => {
+it("depois de 90 s mostra erro, mas segue tentando devagar e se recupera", async () => {
   const { api, calls } = fakeApi();
   const { result } = renderHook(() => useServerWarmup(api, OPTS));
-  for (let i = 0; i < 40 && result.current !== "down"; i++) {
+  for (let i = 0; i < 40; i++) {
     await act(async () => calls.at(-1)?.reject(new ApiError(0, "rede")));
+    if (result.current === "down") break;
     await tick(3_000);
   }
   expect(result.current).toBe("down");
   const n = calls.length;
-  await tick(30_000);
-  expect(calls).toHaveLength(n); // parou de tentar
+  await tick(14_999);
+  expect(calls).toHaveLength(n); // intervalo agora é 15 s
+  await tick(1);
+  expect(calls).toHaveLength(n + 1);
+  await act(async () => calls.at(-1)?.resolve());
+  expect(result.current).toBe("ready");
 });
 
 it("desmontar a tela cancela a tentativa e não agenda outras", async () => {

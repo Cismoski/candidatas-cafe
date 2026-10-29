@@ -83,3 +83,28 @@ it("API acordada: nenhum aviso de servidor", async () => {
   expect(screen.queryByText(/servidor gratuito estava dormindo/)).toBeNull();
   expect(calls.find((c) => c.url.endsWith("/health"))?.headers.get("Authorization")).toBeNull();
 });
+
+it("login com a API dormindo fica guardado e é concluído quando ela acorda", async () => {
+  let awake = false;
+  mockFetch({
+    "GET /health": () => (awake ? json({ status: "ok" }) : new Response("", { status: 502 })),
+    "POST /auth/google": () => {
+      if (!awake) throw new TypeError("Failed to fetch"); // página de "acordando" sem CORS
+      return json({
+        access_token: "jwt-da-api",
+        token_type: "bearer",
+        expires_in: 3600,
+        user: { id: "u1", email: "alice@example.com", name: "Alice" },
+      });
+    },
+    "GET /analyses": () => json([]),
+  });
+  renderWithProviders(<App />);
+  await waitFor(() => expect(renderButton).toHaveBeenCalled());
+  expect(await screen.findByText(/servidor gratuito estava dormindo/)).toBeInTheDocument();
+  await act(async () => callback?.({ credential: "id-token-do-google" }));
+  expect(await screen.findByText(/Esperando o servidor acordar/)).toBeInTheDocument();
+  expect(screen.queryByRole("alert")).toBeNull();
+  awake = true; // próxima tentativa do /health (3 s) encontra a API no ar
+  expect(await screen.findByText("Alice", {}, { timeout: 6_000 })).toBeInTheDocument();
+});

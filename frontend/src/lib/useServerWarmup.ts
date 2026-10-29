@@ -12,7 +12,11 @@ import type { ApiClient } from "../api/client";
  * - "checking": primeira tentativa em andamento (sem aviso: em geral é rápido)
  * - "waking": sem resposta em `slowAfterMs`, ou falha de rede/502: tentando de novo
  * - "ready": /health respondeu
- * - "down": nada em `giveUpAfterMs`; o aviso vira erro
+ * - "down": nada em `giveUpAfterMs`; o aviso vira erro, mas continua tentando
+ *   devagar (a cada `retryEveryMs` × 5) e volta a "ready" se a API aparecer
+ *
+ * Aviso persistente com a API no ar costuma ser CORS_ORIGINS errado: para o
+ * navegador, recusa de CORS e servidor dormindo são o mesmo erro de rede.
  */
 export type WarmupState = "checking" | "waking" | "ready" | "down";
 
@@ -45,12 +49,9 @@ export function useServerWarmup(
         } finally {
           window.clearTimeout(timer);
         }
-        if (Date.now() - started >= giveUpAfterMs) {
-          setState("down");
-          return;
-        }
-        setState("waking");
-        await wait(retryEveryMs);
+        const gaveUp = Date.now() - started >= giveUpAfterMs;
+        setState(gaveUp ? "down" : "waking");
+        await wait(gaveUp ? retryEveryMs * 5 : retryEveryMs);
       }
     })();
 

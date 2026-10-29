@@ -4,6 +4,7 @@ import { useAuth } from "../auth/AuthProvider";
 import { loadGoogleIdentity } from "../auth/google";
 import { useServerWarmup } from "../lib/useServerWarmup";
 import { MapSheet } from "../map/MapSheet";
+import { ApiError } from "../api/client";
 import { ErrorNote } from "./ErrorNote";
 
 const MapView = lazy(() => import("../map/MapView").then((m) => ({ default: m.MapView })));
@@ -21,6 +22,26 @@ export function LoginScreen() {
   // O callback do Google é registrado uma vez; a ref evita fechar sobre um login velho
   const login = useRef(loginWithGoogle);
   login.current = loginWithGoogle;
+  // Clique em "entrar" com a API ainda dormindo: o POST falha por rede. A
+  // credencial do Google vale ~1 h, então guardamos e refazemos quando acordar.
+  const serverRef = useRef(server);
+  serverRef.current = server;
+  const pending = useRef<string | null>(null);
+
+  useEffect(() => {
+    const credential = pending.current;
+    if (!credential) return;
+    if (server === "ready") {
+      pending.current = null;
+      login.current(credential).catch((e) => {
+        setError(e);
+        setSigningIn(false);
+      });
+    } else if (server === "down") {
+      pending.current = null;
+      setSigningIn(false);
+    }
+  }, [server]);
 
   useEffect(() => {
     let alive = true;
@@ -33,6 +54,10 @@ export function LoginScreen() {
             setSigningIn(true);
             setError(null);
             login.current(credential).catch((e) => {
+              if (e instanceof ApiError && e.kind === "network" && serverRef.current !== "ready") {
+                pending.current = credential; // refeito quando /health responder
+                return;
+              }
               setError(e);
               setSigningIn(false);
             });
@@ -90,16 +115,18 @@ export function LoginScreen() {
           )}
           {signingIn && (
             <p className="note" role="status">
-              Validando o login no servidor…
+              {server === "ready" || server === "checking"
+                ? "Validando o login no servidor…"
+                : "Login recebido. Esperando o servidor acordar para validá-lo (até 1 minuto)…"}
             </p>
           )}
           {server === "waking" && !signingIn && (
             <p className="note" role="status">
-              O servidor gratuito estava dormindo e está acordando (leva até 1 minuto). Você já pode clicar em entrar.
+              O servidor gratuito estava dormindo e está acordando (leva até 1 minuto). Você já pode clicar em entrar: o login é concluído quando ele responder.
             </p>
           )}
           {server === "down" && error == null && (
-            <ErrorNote message="A API não respondeu em 90 segundos. Recarregue a página em instantes; se persistir, o serviço pode estar fora do ar." />
+            <ErrorNote message="A API não respondeu em 90 segundos. Seguimos tentando a cada 15 s; se persistir, o serviço pode estar fora do ar." />
           )}
           {error != null && <ErrorNote error={error} />}
         </div>
