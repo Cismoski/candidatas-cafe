@@ -12,7 +12,17 @@ import threading
 from dataclasses import dataclass
 from typing import Protocol
 
-log = logging.getLogger("globalwatch.llm")
+log = logging.getLogger("cafe.llm")
+
+
+# Dicas fixas para erros de configuração (nunca o texto do Google, que pode ecoar o prompt)
+_HINTS = {
+    400: " (requisição recusada; conferir GEMINI_MODEL)",
+    402: " (projeto sem crédito; usar chave de um projeto no nível gratuito)",
+    403: " (chave sem permissão para a API)",
+    404: " (modelo indisponível para esta chave; conferir GEMINI_MODEL)",
+    429: " (cota do Gemini esgotada)",
+}
 
 
 class LLMError(Exception):
@@ -81,7 +91,9 @@ class GeminiChat:
         except Exception as e:  # APIError, httpx.TimeoutException, erros de rede...
             # Só o tipo/código vai para o log: a mensagem pode ecoar o prompt
             code = getattr(e, "code", None)
-            log.warning("falha no Gemini: %s %s", type(e).__name__, code or "")
+            log.warning(
+                "falha no Gemini: %s %s%s", type(e).__name__, code or "", _HINTS.get(code, "")
+            )
             raise LLMError(type(e).__name__) from None
         finally:
             self._slots.release()

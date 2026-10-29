@@ -14,8 +14,8 @@ class Settings(BaseSettings):
     google_client_id: str = Field(min_length=1)
     jwt_secret: SecretStr = Field(min_length=32)
     jwt_ttl_minutes: int = Field(default=60, ge=5, le=24 * 60)
-    jwt_issuer: str = "globalwatch-api"
-    jwt_audience: str = "globalwatch-web"
+    jwt_issuer: str = "cafe-candidatas-api"
+    jwt_audience: str = "cafe-candidatas-web"
 
     # Quantos proxies confiáveis acrescentam ao X-Forwarded-For (Render: 1).
     # 0 = usa o IP da conexão (desenvolvimento local, sem proxy).
@@ -41,7 +41,7 @@ class Settings(BaseSettings):
 
     # Chat. Sem chave o assistente usa só as respostas automáticas (determinísticas).
     gemini_api_key: SecretStr | None = None
-    gemini_model: str = "gemini-2.5-flash-lite"
+    gemini_model: str = "gemini-3.5-flash-lite"
     gemini_timeout_seconds: float = Field(default=15, gt=0, le=60)
     chat_messages_per_day: int = Field(default=30, ge=1)
     # Chamadas simultâneas ao Gemini (cada uma prende uma thread por até o timeout)
@@ -85,7 +85,7 @@ class Settings(BaseSettings):
 
     @property
     def db_path(self) -> Path:
-        return self.data_dir / "globalwatch.sqlite3"
+        return self.data_dir / "cafe.sqlite3"
 
     @property
     def max_upload_bytes(self) -> int:

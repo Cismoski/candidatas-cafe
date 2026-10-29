@@ -66,6 +66,20 @@ def test_service_errors_are_llm_error_and_do_not_leak_message(gc, exc, caplog):
 
 
 @pytest.mark.parametrize(
+    ("status", "hint"),
+    [(404, "conferir GEMINI_MODEL"), (402, "nível gratuito"), (500, "")],
+)
+def test_config_errors_get_a_fixed_hint_in_the_log(gc, caplog, status, hint):
+    """Regressão: modelo descontinuado (404) e projeto sem crédito (402) só
+    apareciam como "ClientError 404" no log."""
+    gc.next = errors.APIError(status, {"error": {"message": "eco do prompt"}})
+    with caplog.at_level("WARNING"), pytest.raises(LLMError):
+        gc.generate("s", [], "m")
+    assert f" {status}" in caplog.text and hint in caplog.text
+    assert "eco do prompt" not in caplog.text
+
+
+@pytest.mark.parametrize(
     "r",
     [
         resp(text=None, candidates=False),  # prompt bloqueado

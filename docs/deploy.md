@@ -110,8 +110,10 @@ Configurar em Settings > Secrets and variables > Actions > Variables:
 | Sessão | JWT de 60 min | `JWT_TTL_MINUTES` |
 | Retenção | análises 24 h; contas sem uso 30 dias (varredura a cada 15 min) | `RETENTION_*`, `USER_RETENTION_DAYS` |
 
-Gemini: o modelo padrão é `gemini-2.5-flash-lite` no nível gratuito do Google AI
-Studio, que tem limites próprios por minuto e por dia [VERIFICAR os valores atuais
+Gemini: o modelo padrão é `gemini-3.5-flash-lite` (o `gemini-2.5-flash-lite` saiu
+para projetos novos e responde 404). A chave precisa ser de um projeto **no nível
+gratuito**: um projeto com faturamento pré-pago e sem crédito responde 402. O log
+mostra o código com uma dica fixa. O nível gratuito do Google AI Studio que tem limites próprios por minuto e por dia [VERIFICAR os valores atuais
 em https://ai.google.dev/gemini-api/docs/rate-limits antes de citar números]. Ao
 estourar, o circuit breaker abre e o chat volta às respostas automáticas.
 
