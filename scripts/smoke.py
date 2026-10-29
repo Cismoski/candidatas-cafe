@@ -5,11 +5,11 @@
 """Verificação do deploy: o que dá para conferir de fora, sem login.
 
     uv run scripts/smoke.py --api https://cafe-candidatas-api.onrender.com \\
-                            --web https://cafe-candidatas.pages.dev
+                            --web https://candidatas-cafe.gabrielcismoski.workers.dev
 
 Confere: API acordada e saudável; rotas protegidas recusam sem token; CORS
-aceita só a origem do frontend; headers de segurança na API e no Pages; CSP do
-Pages aponta para a API; amostras servidas. Sai com código 1 se algo falhar.
+aceita só a origem do frontend; headers de segurança na API e no frontend; CSP do
+frontend aponta para a API; amostras servidas. Sai com código 1 se algo falhar.
 Login, upload e chat precisam de conta Google: ficam no roteiro manual.
 """
 
@@ -25,6 +25,9 @@ FOREIGN_ORIGIN = "https://origem-nao-autorizada.example"
 results: list[tuple[bool, str]] = []
 
 
+USER_AGENT = "candidatas-cafe-smoke/1.0"
+
+
 def check(ok: bool, what: str) -> None:
     results.append((ok, what))
     print(f"[{'ok' if ok else 'FALHOU'}] {what}")
@@ -32,7 +35,10 @@ def check(ok: bool, what: str) -> None:
 
 def request(url: str, method: str = "GET", headers: dict | None = None, timeout: float = 30):
     """(status, headers em minúsculas, corpo) sem lançar em 4xx/5xx."""
-    req = urllib.request.Request(url, method=method, headers=headers or {})  # noqa: S310
+    # User-Agent próprio: a Cloudflare recusa o "Python-urllib" padrão com 403
+    # (error 1010, Browser Integrity Check) antes de chegar aos assets.
+    headers = {"User-Agent": USER_AGENT, **(headers or {})}
+    req = urllib.request.Request(url, method=method, headers=headers)  # noqa: S310
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310
             return r.status, {k.lower(): v for k, v in r.headers.items()}, r.read()
@@ -100,21 +106,21 @@ def main() -> int:
     )
 
     status, h, body = request(f"{web}/")
-    check(status == 200 and b'id="root"' in body, "frontend publicado")
+    check(status == 200 and b'id="root"' in body, f"frontend publicado (HTTP {status})")
     csp = h.get("content-security-policy", "")
     api_origin = "{0.scheme}://{0.netloc}".format(urllib.parse.urlsplit(api))
-    check(api_origin in csp_directive(csp, "connect-src"), "CSP do Pages libera a API")
+    check(api_origin in csp_directive(csp, "connect-src"), "CSP do frontend libera a API")
     check(
         csp_directive(csp, "frame-ancestors") == ["'none'"] or h.get("x-frame-options") == "DENY",
-        "Pages bloqueia iframe",
+        "frontend bloqueia iframe",
     )
-    check(h.get("x-content-type-options") == "nosniff", "Pages envia X-Content-Type-Options")
+    check(h.get("x-content-type-options") == "nosniff", "frontend envia X-Content-Type-Options")
 
-    # O Pages devolve index.html com 200 para caminho inexistente: conferir o tipo
+    # O Cloudflare devolve index.html com 200 para caminho inexistente: conferir o tipo
     status, h, _ = request(f"{web}/amostra/imagem_multiespectral.tif", "HEAD")
     check(
         status == 200 and "text/html" not in h.get("content-type", "text/html"),
-        f"amostra do kit servida pelo Pages ({h.get('content-type', 'sem content-type')})",
+        f"amostra do kit servida pelo frontend (HTTP {status}, {h.get('content-type', 'sem content-type')})",
     )
 
     failed = [w for ok, w in results if not ok]
