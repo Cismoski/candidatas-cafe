@@ -120,6 +120,11 @@ export class ApiClient {
     return (await this.raw(path, init)).json() as Promise<T>;
   }
 
+  /** Público, sem token: usado para acordar a API do plano gratuito. */
+  async health(signal?: AbortSignal): Promise<void> {
+    await this.raw("/health", { signal });
+  }
+
   loginWithGoogle(credential: string): Promise<Session> {
     return this.json("/auth/google", {
       method: "POST",

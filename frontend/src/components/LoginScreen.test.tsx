@@ -68,3 +68,18 @@ it("script do Google bloqueado: mensagem acionável", async () => {
   renderWithProviders(<App />);
   expect(await screen.findByRole("alert")).toHaveTextContent(/bloqueadores/);
 });
+
+it("API dormindo (502 do proxy): a tela avisa que o servidor está acordando", async () => {
+  mockFetch({ "GET /health": () => new Response("Bad Gateway", { status: 502 }) });
+  renderWithProviders(<App />);
+  expect(await screen.findByText(/servidor gratuito estava dormindo/)).toBeInTheDocument();
+});
+
+it("API acordada: nenhum aviso de servidor", async () => {
+  const { calls } = mockFetch({ "GET /health": () => json({ status: "ok" }) });
+  renderWithProviders(<App />);
+  await waitFor(() => expect(calls.some((c) => c.url.endsWith("/health"))).toBe(true));
+  await act(async () => {});
+  expect(screen.queryByText(/servidor gratuito/)).toBeNull();
+  expect(calls.find((c) => c.url.endsWith("/health"))?.headers.get("Authorization")).toBeNull();
+});

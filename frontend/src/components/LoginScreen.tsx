@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { ViewBounds } from "../map/MapView";
 import { useAuth } from "../auth/AuthProvider";
 import { loadGoogleIdentity } from "../auth/google";
+import { useServerWarmup } from "../lib/useServerWarmup";
 import { MapSheet } from "../map/MapSheet";
 import { ErrorNote } from "./ErrorNote";
 
@@ -9,7 +10,8 @@ const MapView = lazy(() => import("../map/MapView").then((m) => ({ default: m.Ma
 const NO_LAYERS = { rgb: false, classes: false, polygons: false, reference: false };
 
 export function LoginScreen() {
-  const { loginWithGoogle, endReason } = useAuth();
+  const { loginWithGoogle, endReason, api } = useAuth();
+  const server = useServerWarmup(api);
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "";
   const button = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<unknown>(null);
@@ -90,6 +92,14 @@ export function LoginScreen() {
             <p className="note" role="status">
               Validando o login no servidor…
             </p>
+          )}
+          {server === "waking" && !signingIn && (
+            <p className="note" role="status">
+              O servidor gratuito estava dormindo e está acordando (leva até 1 minuto). Você já pode clicar em entrar.
+            </p>
+          )}
+          {server === "down" && error == null && (
+            <ErrorNote message="A API não respondeu em 90 segundos. Recarregue a página em instantes; se persistir, o serviço pode estar fora do ar." />
           )}
           {error != null && <ErrorNote error={error} />}
         </div>
