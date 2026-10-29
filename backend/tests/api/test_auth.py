@@ -156,3 +156,19 @@ def test_security_headers(client):
     assert r.headers["x-content-type-options"] == "nosniff"
     assert r.headers["x-frame-options"] == "DENY"
     assert r.headers["cache-control"] == "no-store"
+
+
+def test_unexpected_error_is_json_500_with_cors(client, alice, monkeypatch):
+    """Regressão: o 500 padrão do Starlette saía sem CORS; o navegador via "erro de
+    rede" e a tela dizia que a API estava dormindo."""
+
+    def boom(*a, **k):
+        raise RuntimeError("detalhe interno /srv/segredo")
+
+    monkeypatch.setattr(client.app.state.db, "list_analyses", boom)
+    r = client.get("/analyses", headers={**alice, "Origin": "https://app.example.com"})
+    assert r.status_code == 500
+    assert r.json() == {"detail": "Erro inesperado na API. Tente de novo."}
+    assert r.headers["access-control-allow-origin"] == "https://app.example.com"
+    assert "segredo" not in r.text
+    assert r.headers["x-content-type-options"] == "nosniff"

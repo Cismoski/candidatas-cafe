@@ -175,8 +175,7 @@ def test_analysis_deleted_while_model_answers(env, model):
 def test_unexpected_error_refunds_quota(env, model):
     c, alice, aid, a = env
     model.error = RuntimeError("bug")
-    with pytest.raises(RuntimeError):
-        ask(c, alice, aid)
+    assert ask(c, alice, aid).status_code == 500  # JSON genérico, sem detalhe interno
     model.error = None
     assert ask(c, alice, aid).json()["remaining_today"] == 4
 

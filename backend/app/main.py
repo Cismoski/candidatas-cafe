@@ -83,6 +83,38 @@ class SecurityHeadersMiddleware:
         await self.app(scope, receive, send_with_headers)
 
 
+class InternalErrorMiddleware:
+    """Erro inesperado vira 500 JSON DENTRO da camada de CORS.
+
+    O tratamento padrão do Starlette (ServerErrorMiddleware) fica fora de todos
+    os middlewares: a resposta 500 sairia sem Access-Control-Allow-Origin, o
+    navegador veria "erro de rede" e a interface diria que a API está dormindo.
+    """
+
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        started = False
+
+        async def tracking_send(message: Message) -> None:
+            nonlocal started
+            if message["type"] == "http.response.start":
+                started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, tracking_send)
+        except Exception:
+            log.exception("erro inesperado em %s %s", scope["method"], scope["path"])
+            if started:  # a resposta já começou: nada a fazer além de encerrar
+                raise
+            response = JSONResponse({"detail": "Erro inesperado na API. Tente de novo."}, 500)
+            await response(scope, receive, send)
+
+
 IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9_\-]{8,64}$")
 UPLOAD_FIELDS = {"primary", "scl", "secondary"}
 
@@ -243,13 +275,15 @@ def create_app(
     limits = RasterLimits(max_dim=settings.max_raster_dim)
 
     # Ordem: o último adicionado é o mais externo.
-    #   CORS -> limite de corpo -> headers -> pré-checagem do Bearer -> rate limit -> rotas
+    #   CORS -> limite de corpo -> headers -> erro 500 -> pré-checagem do Bearer
+    #   -> rate limit -> rotas
     # Todos são ASGI puros: BaseHTTPMiddleware embrulha o receive num task group
     # e transformaria o 413 do limite de corpo num ExceptionGroup (500).
     # CORS por fora para que até 401/413/429 levem os headers e o navegador
     # consiga mostrar a mensagem.
     app.add_middleware(RateLimitMiddleware)  # slowapi corrigido (ver ratelimit.py)
     app.add_middleware(BearerPrecheckMiddleware, routes={("POST", "/analyses")})
+    app.add_middleware(InternalErrorMiddleware)  # dentro de CORS e headers
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(
         BodySizeLimitMiddleware,
