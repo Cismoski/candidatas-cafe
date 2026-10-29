@@ -14,12 +14,23 @@ from app.values import AcquisitionDate, AnalysisId, AnalysisTitle, IdempotencyKe
 # --- AnalysisId -------------------------------------------------------------------------
 @given(st.uuids())
 def test_analysis_id_accepts_any_uuid_in_canonical_form(u):
-    for raw in (str(u), str(u).upper(), u.hex):
+    # Todas as grafias que uuid.UUID aceita levam à mesma análise
+    for raw in (str(u), str(u).upper(), u.hex, f"{{{u}}}", f"urn:uuid:{u}"):
         assert AnalysisId(raw) == str(u)
 
 
 @pytest.mark.parametrize(
-    "raw", ["", "abc", "../../etc/passwd", "11111111-1111-4111-8111-11111111111", None, 42]
+    "raw",
+    [
+        "",
+        "abc",
+        "../../etc/passwd",
+        "11111111-1111-4111-8111-11111111111",
+        " 11111111-1111-4111-8111-111111111111",
+        "11111111-1111-4111-8111-111111111111\n",
+        None,
+        42,
+    ],
 )
 def test_analysis_id_rejects_non_uuid(raw):
     with pytest.raises(ValueError):
