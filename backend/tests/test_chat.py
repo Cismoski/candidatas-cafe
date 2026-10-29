@@ -533,3 +533,64 @@ def test_invalid_or_missing_date_never_breaks_the_introduction(bad):
     s = summary()
     s["inputs"]["primary"]["acquired_utc"] = bad
     assert "data desconhecida" in chat.introduction(s)
+
+
+# --- revisão: frases que passavam pela guarda (S tem 3 polígonos, 155,31 ha) ------------
+@pytest.mark.parametrize(
+    ("text", "bad"),
+    [
+        ("Foram encontrados 7 polígonos candidatos.", ["7 poligonos"]),
+        ("Há sete talhões candidatos.", ["sete talhoes"]),
+        ("A área candidata total é de 0,66 ha.", ["0,66"]),  # NDVI usado como área
+        ("São 2 ha de candidatas.", ["2"]),  # inteiro pequeno não é livre com unidade
+        ("Metade das candidatas é pastagem.", ["metade"]),
+        ("Cerca de dois terços da área é café.", ["dois tercos"]),
+        ("A área é 1e3 hectares.", ["1e3"]),
+    ],
+)
+def test_counts_areas_and_fractions_must_match_the_context(text, bad):
+    assert chat.unsupported_numbers(text, ALLOWED) == bad
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "São 3 polígonos candidatos, somando 155,31 ha.",
+        "Há três polígonos; o maior tem 146,33 ha.",
+        "A área mínima de polígono é 0,5 ha.",
+        "O polígono nº 2 tem 8,33 ha e NDVI 0,55.",
+        "Mostro 3 polígonos da lista.",
+    ],
+)
+def test_true_counts_and_areas_pass(text):
+    assert chat.unsupported_numbers(text, ALLOWED) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Em 9 de cada 10 casos o método acerta o café.",
+        "O método identifica corretamente o café.",
+        "As áreas são altamente confiáveis.",
+        "O resultado é muito confiável e preciso.",
+        "A classificação é precisa.",
+        "Estas áreas são café, confirmadas pelo processamento.",
+        "Esses talhões são café.",
+    ],
+)
+def test_qualitative_accuracy_claims_detected(text):
+    assert chat.accuracy_claim(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "As áreas não foram confirmadas em campo.",
+        "É preciso conferir em campo antes de afirmar algo.",
+        "Elas não são café necessariamente: são candidatas.",
+        "Os polígonos são café em potencial, não café confirmado.",
+        "Sem verdade de campo, nada aqui foi confirmado.",
+    ],
+)
+def test_honest_caveats_are_not_flagged(text):
+    assert not chat.accuracy_claim(text)

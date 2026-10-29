@@ -5,12 +5,16 @@ Três camadas para "responder só com os números do processamento":
 2. Prompt de sistema com as regras (usar só o contexto, dizer quando não sabe,
    nunca afirmar acurácia, tratar a pergunta como dado).
 3. Checagem na saída (`unsupported_numbers` e `accuracy_claim`): todo número
-   da resposta tem de ser um arredondamento de algum valor do contexto
-   (percentual só casa com valor que já é percentual), número por extenso
-   acima de doze é recusado, e menção a acurácia/confiabilidade perto de um
-   número também. Falhou, a resposta do modelo é descartada e vale a resposta
+   da resposta tem de ser um arredondamento de algum valor do contexto do
+   mesmo tipo (percentual com percentual, "N ha" com área, "N polígonos" com
+   a contagem real); inteiros de 0 a 12 soltos na prosa passam. Número por
+   extenso acima de doze, fração por extenso ("metade") e notação científica
+   são recusados, assim como acurácia perto de um número e afirmação
+   qualitativa de acerto ou certeza ("o método acerta", "são café") sem
+   negação antes. Falhou, a resposta do modelo é descartada e vale a resposta
    automática. É heurística: pega número inventado, não pega frase errada com
-   número certo (ex.: atribuir a área de um polígono a outro).
+   número certo (ex.: atribuir a área de um polígono a outro, ou trocar o
+   sinal de um índice, porque a comparação é em valor absoluto).
 
 A resposta automática (`automatic_answer`) é determinística, feita por regras de
 palavras-chave e templates sobre o mesmo summary. Ela é usada sem chave, com o
@@ -206,51 +210,93 @@ _ACCURACY_ADJ = re.compile(
     r"(?:alta|elevada|grande|boa|otima|excelente)\s+(?:acurac|precisao|confiab|exatidao)"
     r"|\b(?:certamente|com certeza|sem duvida|garantidamente)\b"
 )
+# Afirmações qualitativas de acerto ou certeza; valem só sem negação logo antes
+# ("não foram confirmadas em campo" é honesto).
+_QUALITY_CLAIM = re.compile(
+    r"\bacert(?:a|am|ou|aram|ando|ividade)\b"
+    r"|\bcorretamente\b"
+    r"|\b(?:muito|altamente|bastante|extremamente|totalmente)\s+"
+    r"(?:confiave|precis|exat|corret|segur)"
+    r"|\b(?:e|sao|foi|foram|esta|estao)\s+(?:\w+\s+)?confiave(?:l|is)\b"
+    r"|\b(?:resultado|metodo|classificacao|mapa|mapeamento|identificacao)\w*\s+"
+    r"(?:\w+\s+){0,2}(?:e|sao|foi|esta)\s+(?:\w+\s+){0,1}(?:precis[oa]s?|exat[oa]s?)\b"
+    r"|\bconfirmad[ao]s?\b"
+    r"|\b(?:sao|e)\s+(?:de\s+)?cafe\b(?!\s+(?:em potencial|potencial|candidat))"
+)
+_NEGATION = re.compile(r"\b(?:nao|nem|sem|nada|nenhum[a]?|jamais|nunca|necessariamente)\b")
+# Frações por extenso também são números ("metade das candidatas é pasto")
+_FRACTION_WORDS = re.compile(
+    r"\b(?:metade|(?:um|dois|1|2)\s+tercos?|(?:um|tres|1|3)\s+quartos?\s+d)"
+)
+_SMALL_WORDS = {
+    "zero": 0, "um": 1, "uma": 1, "dois": 2, "duas": 2, "tres": 3, "quatro": 4, "cinco": 5,
+    "seis": 6, "sete": 7, "oito": 8, "nove": 9, "dez": 10, "onze": 11, "doze": 12,
+}  # fmt: skip
+_COUNT = re.compile(r"(?<![\w.,])(\d+|" + "|".join(_SMALL_WORDS) + r")\s+(?:poligonos|talhoes)\b")
+_HECTARE = re.compile(r"\s*(?:ha\b|hectares?\b)", re.IGNORECASE)
 # id da cena e nome da fonte têm dígitos que não são medidas ("Coleção 11", "30 m")
 _SKIP_KEYS = {"cena", "fonte"}
 
 
-def _numbers_in(value, key: str = "", percent: bool = False) -> Iterable[tuple[float, bool]]:
-    """(valor, é_percentual) de tudo que é número no contexto. Chave terminada em
-    "percentual" marca o valor e tudo o que estiver aninhado nela."""
+def _numbers_in(
+    value, key: str = "", percent: bool = False, area: bool = False
+) -> Iterable[tuple[float, bool, bool]]:
+    """(valor, é_percentual, é_área) de tudo que é número no contexto. Chave
+    terminada em "percentual" ou "_ha" marca o valor e tudo o que estiver
+    aninhado nela."""
     if isinstance(value, bool) or value is None or key in _SKIP_KEYS:
         return
     percent = percent or key.endswith("percentual")
+    area = area or key.endswith("_ha")
     if isinstance(value, int | float):
         if math.isfinite(value):
-            yield abs(float(value)), percent
+            yield abs(float(value)), percent, area
     elif isinstance(value, str):
         for n in parse_numbers(value):
             for v in n.readings:
-                yield v, n.percent
+                yield v, n.percent, n.area
     elif isinstance(value, dict):
         for k, v in value.items():
-            yield from _numbers_in(v, str(k), percent)
+            yield from _numbers_in(v, str(k), percent, area)
     elif isinstance(value, list | tuple):
         for v in value:
-            yield from _numbers_in(v, key, percent)
+            yield from _numbers_in(v, key, percent, area)
 
 
 class Allowed:
-    """Valores do contexto. Percentual na resposta só casa com valor percentual
-    do contexto: "90%" não pode se apoiar nos 90 polígonos."""
+    """Valores do contexto, por tipo. Percentual na resposta só casa com valor
+    percentual ("90%" não se apoia nos 90 polígonos) e número seguido de "ha" só
+    casa com área ("0,66 ha" não se apoia no NDVI 0,66). `counts` são as
+    quantidades de polígonos que o contexto informa."""
 
-    def __init__(self, plain: set[float], percent: set[float]):
-        self.plain, self.percent = plain, percent
+    def __init__(self, plain: set[float], percent: set[float], area: set[float], counts: set[int]):
+        self.plain, self.percent, self.area, self.counts = plain, percent, area, counts
 
 
 def allowed_numbers(context: dict) -> Allowed:
-    plain, percent = set(), set()
-    for v, is_pct in _numbers_in(context):
+    plain, percent, area = set(), set(), set()
+    for v, is_pct, is_area in _numbers_in(context):
         (percent if is_pct else plain).add(v)
-    return Allowed(plain, percent)
+        if is_area and not is_pct:
+            area.add(v)
+    counts = {
+        n
+        for n in (
+            (context.get("resultado") or {}).get("poligonos_candidatos"),
+            context.get("total_de_poligonos_no_resultado"),
+            len(context.get("poligonos") or []),
+        )
+        if isinstance(n, int)
+    }
+    return Allowed(plain, percent, area, counts)
 
 
 class Num:
-    __slots__ = ("token", "readings", "percent")
+    __slots__ = ("token", "readings", "percent", "area")
 
-    def __init__(self, token: str, readings: list[float], percent: bool):
+    def __init__(self, token: str, readings: list[float], percent: bool, area: bool = False):
         self.token, self.readings, self.percent = token, readings, percent
+        self.area = area
 
 
 def parse_numbers(text: str) -> list[Num]:
@@ -279,7 +325,8 @@ def parse_numbers(text: str) -> list[Num]:
             readings = [x * mult for x in readings]
             tok = f"{tok} {suffix}"
         percent = suffix.startswith(("%", "por"))
-        found.append(Num(tok + ("%" if percent else ""), readings, percent))
+        area = not percent and bool(_HECTARE.match(text, m.end()))
+        found.append(Num(tok + ("%" if percent else ""), readings, percent, area))
     return found
 
 
@@ -293,13 +340,15 @@ def _decimals(tok: str, reading: float) -> int:
 
 
 def unsupported_numbers(reply: str, allowed: Allowed) -> list[str]:
-    """Números da resposta que não são arredondamento de nenhum valor do contexto."""
+    """Números da resposta que não são arredondamento de nenhum valor do contexto
+    do mesmo tipo, mais contagens de polígonos que não batem e frações por extenso."""
     bad = []
     for n in parse_numbers(reply):
-        pool = allowed.percent if n.percent else allowed.plain
+        pool = allowed.percent if n.percent else allowed.area if n.area else allowed.plain
         ok = False
         for x in n.readings:
-            if not n.percent and x == int(x) and int(x) in FREE_INTEGERS:
+            free = not n.percent and not n.area and x == int(x) and int(x) in FREE_INTEGERS
+            if free:
                 ok = True
                 break
             tol = 0.5 * 10 ** -_decimals(n.token.split(" ")[0], x) + 1e-9
@@ -309,18 +358,30 @@ def unsupported_numbers(reply: str, allowed: Allowed) -> list[str]:
         if not ok:
             bad.append(n.token)
     # "3 mil" e "5 por cento" já foram lidos acima; o resto por extenso é recusado
-    words = _NUMBER.sub(" ", _norm(reply))
+    norm = _norm(reply)
+    words = _NUMBER.sub(" ", norm)
     bad += [m.group(0) for m in _NUMBER_WORDS.finditer(words)]
+    bad += [m.group(0) for m in _FRACTION_WORDS.finditer(norm)]
+    bad += re.findall(r"\d(?:[.,]\d+)?e[+-]?\d+", norm)  # notação científica: "1e3"
+    # "7 polígonos" ou "sete talhões": inteiro pequeno não é livre quando é contagem
+    for m in _COUNT.finditer(norm):
+        n = int(m.group(1)) if m.group(1).isdigit() else _SMALL_WORDS[m.group(1)]
+        if n not in allowed.counts:
+            bad.append(m.group(0))
     return bad
 
 
 def accuracy_claim(reply: str) -> bool:
     """Afirma acurácia/confiabilidade? (número ou "%" a até 40 caracteres do termo,
-    ou adjetivo como "alta precisão", "certamente"). Falso positivo é barato:
-    só troca a resposta pela automática."""
+    adjetivo como "alta precisão", "certamente", ou afirmação qualitativa como "o
+    método acerta", "são confiáveis", "são café" sem negação antes). Falso
+    positivo é barato: só troca a resposta pela automática."""
     t = _norm(reply)
     if _ACCURACY_ADJ.search(t):
         return True
+    for m in _QUALITY_CLAIM.finditer(t):
+        if not _NEGATION.search(t[max(0, m.start() - 30) : m.start()]):
+            return True
     for m in _ACCURACY.finditer(t):
         window = t[max(0, m.start() - 40) : m.end() + 40]
         if re.search(r"\d|%|por cento", window):

@@ -106,7 +106,7 @@ e a hipótese de "vigor intermediário" deixa de valer.
 | Limites | Cotas por usuário (análises e chat por dia), rate limit por IP e por usuário, fila máxima (503), timeout por análise, idempotência por `Idempotency-Key`. Tabela completa em [`docs/deploy.md`](docs/deploy.md#cotas-da-aplicação). |
 | Chaves | Só em variáveis de ambiente; `.env.example` sem valores (há teste para isso). A chave do Gemini existe só no backend; nada secreto vai no bundle (`VITE_*` são públicas por definição). |
 | Navegador | CORS só para a origem do frontend; CSP restritiva gerada no build; headers de segurança na API e no Pages. |
-| Chat | O modelo recebe o resumo numérico e de método, a pergunta e as últimas 6 mensagens, sem nome nem e-mail; a interface avisa para não escrever dados pessoais. Uma guarda rejeita respostas com percentuais, valores com unidade ou números acima de 12 (inclusive por extenso) que não existam no resultado; inteiros de 0 a 12 passam livres na prosa. O circuit breaker cai para as respostas automáticas. |
+| Chat | O modelo recebe o resumo numérico e de método, a pergunta e as últimas 6 mensagens, sem nome nem e-mail; a interface avisa para não escrever dados pessoais. Uma guarda confere cada número da resposta contra o resultado, por tipo (percentual, área em ha, contagem de polígonos), recusa frações e números por extenso e afirmações de acerto ou certeza ("o método acerta", "são café"). Inteiros de 0 a 12 soltos na prosa passam; troca de sinal e frase errada com número certo não são detectadas. O circuit breaker cai para as respostas automáticas. |
 | Contêiner | Usuário sem root (uid 10001), imagens fixadas por sha256, 1 worker. |
 
 ## Executar localmente
