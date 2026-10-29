@@ -1,0 +1,76 @@
+# Testes, lint e build da imagem a cada push e PR. Não usa segredos: os testes
+# não chamam o Google, o Gemini nem o MapBiomas (tudo é falso ou local).
+# Actions fixadas por SHA do commit (a tag está no comentário).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.4"
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pytest --cov --cov-report=term
+
+  frontend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.3"
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+      - run: bun run test
+      # O build gera o _headers com a CSP, que exige uma URL de API
+      - run: bun run build
+        env:
+          VITE_API_URL: https://api.example.com
+          VITE_GOOGLE_CLIENT_ID: ci.apps.googleusercontent.com
+
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: docker build -t globalwatch-api:ci backend
+      # A imagem sobe sem root e responde ao /health
+      - run: |
+          docker run -d --name api -p 8000:8000 \
+            -e GOOGLE_CLIENT_ID=ci.apps.googleusercontent.com \
+            -e JWT_SECRET="$(openssl rand -hex 32)" \
+            -e MAPBIOMAS_URL= \
+            globalwatch-api:ci
+          test "$(docker exec api id -u)" = "10001"
+          for i in $(seq 30); do curl -fsS localhost:8000/health && exit 0; sleep 1; done
+          docker logs api; exit 1
