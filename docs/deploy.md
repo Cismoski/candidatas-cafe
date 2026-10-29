@@ -77,8 +77,24 @@ rede. Por isso a tela de login chama `/health` ao abrir:
 Testes: `frontend/src/lib/useServerWarmup.test.ts` (BVA em 3,999 s / 4 s, retry,
 timeout por tentativa, desistência, cancelamento ao desmontar).
 
-**Não** usamos ping periódico para manter o serviço acordado: isso gastaria as 750
-h do mês e contraria o propósito do plano gratuito.
+**Ping só na janela de avaliação.** Fora dela o serviço dorme, como o plano
+gratuito prevê. Durante a avaliação, um avaliador que encontra a API dormindo
+espera ~1 min, e o disco efêmero apaga a conta e as análises de quem voltar depois
+de 15 min. Por isso `.github/workflows/keepalive.yml` chama o `/health` a cada
+10 min até a data em `KEEPALIVE_UNTIL`:
+
+- **Custo:** um serviço acordado o mês todo usa ~744 h, dentro das 750 h do
+  workspace. Com um segundo serviço free no mesmo workspace, a conta não fecha.
+- **Sem segredo:** `/health` é público e não toca no banco; o workflow não tem
+  permissões (`permissions: {}`) nem actions de terceiros.
+- **Limite:** o agendamento do GitHub é "melhor esforço" e pode atrasar ou pular
+  execuções. A tela de "acordando" continua sendo a garantia.
+- **Desligar:** apagar a variável `KEEPALIVE_URL` ou passar da data. O GitHub
+  também desativa crons de repositórios sem atividade por 60 dias.
+
+Configurar em Settings > Secrets and variables > Actions > Variables:
+`KEEPALIVE_URL=https://<servico>.onrender.com/health` e
+`KEEPALIVE_UNTIL=AAAA-MM-DD` (último dia, UTC).
 
 ## Cotas da aplicação
 

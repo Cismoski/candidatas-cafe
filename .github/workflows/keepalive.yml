@@ -1,0 +1,32 @@
+# Mantém a API do Render acordada só durante a janela de avaliação.
+# Sem segredos e sem actions de terceiros: só curl no /health público.
+# Configuração por variáveis do repositório (Settings > Variables > Actions):
+#   KEEPALIVE_URL   ex.: https://<servico>.onrender.com/health
+#   KEEPALIVE_UNTIL último dia da janela, AAAA-MM-DD (UTC); depois disso não pinga
+# Sem as duas variáveis, o job não faz nada. O agendamento do GitHub é "melhor
+# esforço" (pode atrasar), então a tela de "acordando" continua necessária.
+name: keepalive
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ping:
+    if: vars.KEEPALIVE_URL != '' && vars.KEEPALIVE_UNTIL != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Ping /health dentro da janela
+        env:
+          URL: ${{ vars.KEEPALIVE_URL }}
+          UNTIL: ${{ vars.KEEPALIVE_UNTIL }}
+        run: |
+          if [[ "$(date -u +%F)" > "$UNTIL" ]]; then
+            echo "Janela encerrada em $UNTIL; nada a fazer."
+            exit 0
+          fi
+          curl -fsS --max-time 90 --retry 2 --retry-delay 10 "$URL"

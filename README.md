@@ -177,6 +177,6 @@ O que os testes cobrem, com exemplos:
 | MapBiomas Coleção 11 (GCS público) | Referência de café | grátis, CC BY 4.0 |
 | Google Gemini (AI Studio, nível gratuito) | Chat (opcional) | grátis; o Google pode usar os dados do nível gratuito, por isso só o resumo da análise e a conversa vão ao modelo, sem nome nem e-mail |
 | OpenFreeMap | Mapa base | grátis, sem chave; dados OpenStreetMap (ODbL), atribuição exibida no mapa |
-| Render (free) | API | grátis; dorme após 15 min |
+| Render (free) | API | grátis; dorme após 15 min (ping na janela de avaliação, ver deploy.md) |
 | Cloudflare Pages (free) | Frontend | grátis |
 | GitHub Actions | CI | grátis em repositório público |
