@@ -76,7 +76,7 @@ export function LoginScreen() {
 
         {endReason === "expired" && (
           <p className="note" role="status">
-            Sua sessão expirou. Entre de novo; suas análises continuam guardadas por 24 h.
+            Sua sessão expirou. Entre de novo para continuar.
           </p>
         )}
 
@@ -106,7 +106,8 @@ export function LoginScreen() {
 
         <p className="login__fine">
           Guardamos seu nome e e-mail do Google para separar suas análises das de outros usuários. Imagens e resultados
-          são apagados em 24 h; a conta, após 30 dias sem uso.
+          são apagados em até 24 h, ou antes se o servidor gratuito reiniciar (ele dorme após 15 min sem uso); a
+          conta, após 30 dias sem uso.
         </p>
       </section>
 

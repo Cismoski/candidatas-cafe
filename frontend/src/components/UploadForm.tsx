@@ -166,7 +166,7 @@ export function UploadForm({ onCreated, onCancel }: { onCreated: (a: Analysis) =
       </div>
       <p className="upload__fine">
         Até {MAX_UPLOAD_MB} MB por envio e 1500 × 1500 px. O processamento roda no servidor a cada envio; os
-        arquivos e resultados são apagados em 24 h.
+        arquivos e resultados são apagados em até 24 h (antes, se o servidor gratuito reiniciar).
       </p>
     </form>
   );

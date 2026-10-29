@@ -80,6 +80,6 @@ it("API acordada: nenhum aviso de servidor", async () => {
   renderWithProviders(<App />);
   await waitFor(() => expect(calls.some((c) => c.url.endsWith("/health"))).toBe(true));
   await act(async () => {});
-  expect(screen.queryByText(/servidor gratuito/)).toBeNull();
+  expect(screen.queryByText(/servidor gratuito estava dormindo/)).toBeNull();
   expect(calls.find((c) => c.url.endsWith("/health"))?.headers.get("Authorization")).toBeNull();
 });
