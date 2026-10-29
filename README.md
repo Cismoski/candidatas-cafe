@@ -150,8 +150,8 @@ Medido em 28/10/2026, localmente. A CI roda lint, pytest com cobertura, os teste
 
 | Conjunto | Resultado | Comando |
 |---|---|---|
-| Backend (pytest) | **443 passaram**; cobertura 97% (linhas + ramos), sendo 94,4% dos ramos; `classify.py`, `pipeline.py` e `reference.py` com 100% | `cd backend && uv run pytest --cov` |
-| Frontend (vitest) | **191 passaram**, cobertura de linhas 92,3% e de ramos 86,5% | `cd frontend && bun run test:cov` |
+| Backend (pytest) | **485 passaram**; cobertura 97% (linhas + ramos), sendo 94,4% dos ramos; `classify.py`, `pipeline.py` e `reference.py` com 100% | `cd backend && uv run pytest --cov` |
+| Frontend (vitest) | **195 passaram**, cobertura de linhas 92,3% e de ramos 86,5% | `cd frontend && bun run test:cov` |
 | Mutação (mutmut, processamento) | **85% dos mutantes mortos** (1.377 de 1.618): `vectorize` 96%, `classify` 92%, `radiometry` 92%, `reading` 85%, `indices` 84%, `pipeline` 81%. Numa amostra dos sobreviventes do `pipeline`, a maioria muda textos e formatação do resumo; o contrato do `summary.json` (chaves e valores derivados) foi fixado num teste depois que a primeira rodada deu 69% nesse módulo | `cd backend && uv run mutmut run && uv run mutmut results` |
 | Imagem Docker | sobe sem root e responde ao `/health` (CI) | `.github/workflows/ci.yml` |
 | Deploy | 13 verificações de fora (401, CORS, CSP, headers) | `uv run scripts/smoke.py --api … --web …` |
