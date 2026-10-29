@@ -1,0 +1,8 @@
+# Só entra o que o runtime usa (app/, config/, pyproject.toml, uv.lock)
+*
+!app/
+!config/
+!pyproject.toml
+!uv.lock
+**/__pycache__
+**/*.pyc
