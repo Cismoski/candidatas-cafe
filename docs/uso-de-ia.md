@@ -60,9 +60,9 @@ trazem a coautoria.
    - Conferi que o script de recorte reproduz o kit pixel a pixel, com mesmo transform, CRS e data.
    - Medi memória e tempo da imagem Docker limitada como o plano gratuito.
 4. **Fontes.** Regra combinada: citar só o que foi aberto durante a pesquisa,
-   com link ou DOI. Cada fonte está marcada [VERIFICAR] para eu conferir antes
-   de entregar. Os metadados do Otsu (1979) e do Souza Jr. et al. (2020) foram
-   conferidos no Crossref.
+   com link ou DOI. Em 29/10 todos os DOIs foram conferidos no Crossref (autores,
+   ano, revista, volume, páginas) e todos os links foram abertos; nos PDFs
+   conferimos autores e o trecho citado (ex.: filtro de 5 anos do MapBiomas).
 5. **Deploy.** `scripts/smoke.py` checa de fora: 401, CORS, CSP e headers.
 
 ## Erros da IA que a validação pegou

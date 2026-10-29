@@ -96,16 +96,16 @@ porque o produto é triagem para conferência.
   (pivô) tem vigor intermediário em agosto e entra como candidata.
 - Não há acurácia: os números do app são áreas e concordâncias.
 
-## Fontes (conferir cada link antes de entregar)
+## Fontes (links e DOIs conferidos em 29/10/2026; DOIs contra o Crossref)
 
-1. Moreira, Adami, Rudorff (2004), *Pesq. Agropec. Bras.* 39(3). doi:10.1590/S0100-204X2004000300004 [VERIFICAR]
-2. Índices: Rouse et al. (1974), NDVI, ntrs.nasa.gov/citations/19740022614; McFeeters (1996), NDWI, doi:10.1080/01431169608948714; Huete (1988), SAVI, doi:10.1016/0034-4257(88)90106-X (NDWI e SAVI: só metadados) [VERIFICAR]
-3. Otsu (1979), *IEEE TSMC* 9(1). doi:10.1109/TSMC.1979.4310076 (só metadados) [VERIFICAR]
-4. Sousa et al., Mapeamento de áreas cafeeiras do Sul de MG: Machado e Três Pontas, EPAMIG/Embrapa. alice.cnptia.embrapa.br/alice/bitstream/doc/880317/1/Mapeamentodeareascafeeiras.pdf [VERIFICAR]
-5. Trindade et al. (2024), Anais IFSULDEMINAS. josif.ifsuldeminas.edu.br/ojs/index.php/anais/article/view/2236 [VERIFICAR]
-6. Alves, Volpato, Campos (2021), Embrapa Café, Documentos 13. infoteca.cnptia.embrapa.br/infoteca/handle/doc/1134278 [VERIFICAR]
-7. Souza Jr. et al. (2020), *Remote Sensing* 12(17), 2735. doi:10.3390/rs12172735. Dados: brasil.mapbiomas.org/downloads/mapas-para-download-geotiff/ [VERIFICAR]
-8. Copernicus, Sentinel Data Legal Notice. sentinels.copernicus.eu/documents/247904/690755/Sentinel_Data_Legal_Notice [VERIFICAR]
-9. ESA SentiWiki, S2 Processing. sentiwiki.copernicus.eu/web/s2-processing [VERIFICAR]
-10. Google, Gemini API Additional Terms. ai.google.dev/gemini-api/terms [VERIFICAR]
-11. openfreemap.org; openstreetmap.org/copyright [VERIFICAR]
+1. Moreira, Adami, Rudorff (2004), *Pesq. Agropec. Bras.* 39(3). doi:10.1590/S0100-204X2004000300004
+2. Índices: Rouse et al. (1974), NDVI, ntrs.nasa.gov/citations/19740022614; McFeeters (1996), NDWI, doi:10.1080/01431169608948714; Huete (1988), SAVI, doi:10.1016/0034-4257(88)90106-X (NDWI e SAVI: só metadados)
+3. Otsu (1979), *IEEE TSMC* 9(1). doi:10.1109/TSMC.1979.4310076 (só metadados)
+4. Sousa et al., Mapeamento de áreas cafeeiras do Sul de MG: Machado e Três Pontas, EPAMIG/Embrapa. alice.cnptia.embrapa.br/alice/bitstream/doc/880317/1/Mapeamentodeareascafeeiras.pdf
+5. Trindade et al. (2024), Anais IFSULDEMINAS. josif.ifsuldeminas.edu.br/ojs/index.php/anais/article/view/2236
+6. Alves, Volpato, Campos (2021), Embrapa Café, Documentos 13. infoteca.cnptia.embrapa.br/infoteca/handle/doc/1134278
+7. Souza Jr. et al. (2020), *Remote Sensing* 12(17), 2735. doi:10.3390/rs12172735. Dados: brasil.mapbiomas.org/downloads/mapas-para-download-geotiff/
+8. Copernicus, Sentinel Data Legal Notice. sentinels.copernicus.eu/documents/247904/690755/Sentinel_Data_Legal_Notice
+9. ESA SentiWiki, S2 Processing. sentiwiki.copernicus.eu/web/s2-processing
+10. Google, Gemini API Additional Terms. ai.google.dev/gemini-api/terms
+11. openfreemap.org; openstreetmap.org/copyright

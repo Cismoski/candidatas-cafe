@@ -1,6 +1,6 @@
 # Métodos alternativos para café candidato (Guaxupé/MG) e dados de referência
 
-Acesso e medições: **2026-10-28**. Toda fonte está marcada **[VERIFICAR]** e não repete o que já está em `pesquisa-bruta.md` (P1–P5, MapBiomas, SCL), a não ser quando é necessário para comparar.
+Acesso e medições: **2026-10-28**. Links e DOIs conferidos em **2026-10-29** (DOIs contra o Crossref; PDFs abertos). As fontes não repetem o que já está em `pesquisa-bruta.md` (P1–P5, MapBiomas, SCL), a não ser quando é necessário para comparar.
 As medições locais (seção 2) foram feitas com scripts temporários, que não ficaram no repositório. Usam o recorte do kit (512×512, EPSG:32723), a cena de 17/02/2025 e o pipeline atual (`python -m app.processing`).
 
 > **Decisão (28/10/2026):** por causa do prazo, entrou só a comparação com o
@@ -123,7 +123,7 @@ Sem verdade de campo, os parâmetros se definem assim:
 Alternativa à GLCM: `skimage.feature.graycomatrix` por objeto (contraste e homogeneidade do NDVI quantizado em 32 níveis). Fica ~10× mais lento, e o ganho não foi testado aqui.
 
 **Falhas esperadas do método 1:**
-- herda os erros do MapBiomas. O MB usa SWIR e mediana anual, e marca como café qualquer pixel classificado como café nos últimos 5 anos [S6] [VERIFICAR];
+- herda os erros do MapBiomas. O MB usa SWIR e mediana anual, e marca como café qualquer pixel classificado como café nos últimos 5 anos [S6, seção 3.2.5];
 - café recepado ou em formação confundido com pasto;
 - café adensado confundido com mata;
 - modelo atrelado ao par de datas e à órbita (R038). Outra estação exige retreino;
@@ -157,28 +157,27 @@ Melhor uso: (a) uma camada de explicação ("por que este polígono é perene") 
 | Desbalanceamento (café ≈ 12 % na janela de 20 km, 1,6 % no recorte) | `class_weight="balanced"` ou subamostragem. Limiar calibrado pela prevalência na janela de treino |
 | Mudança de ano/estação | Ano MB = ano da imagem (C11 2025 para ago/2025). Retreinar se a data mudar de estação |
 
-## Fontes novas (todas [VERIFICAR])
+## Fontes novas
 
-- **[S1]** Alves, H. M. R.; Volpato, M. M. L.; Campos, B. F. D. (2021). *Mapeamento automatizado de áreas de café em Minas Gerais*. Brasília: Embrapa Café (Documentos, 13). https://www.infoteca.cnptia.embrapa.br/infoteca/handle/doc/1134278 — PDF: …/bitstream/doc/1134278/1/Embrapa-Cafe-Serie-Documentos-13.pdf. **Texto completo lido** (métodos e Tabela 8). [VERIFICAR]
-- **[S2]** Marujo, R. F. B.; Moreira, M. A.; Volpato, M. M. L.; Alves, H. M. R. (2017). Mapeamento da cultura cafeeira por meio de classificação automática utilizando atributos espectrais, texturais e fator de iluminação. *Coffee Science*, 12(2), 164–175. https://www.alice.cnptia.embrapa.br/alice/bitstream/doc/1089248/1/Mapeamentodaculturacafeeirapormeiodeclassificacao.pdf — **resumo e introdução lidos** (DOI não conferido). [VERIFICAR]
-- **[S3]** Moreno, C. L.; Souza, V. C. O.; Paula, M. M. V.; Volpato, M. M. L.; Alves, H. M. R. (2026). Deep Learning e Agricultura Digital: Avaliação de Arquiteturas para Mapeamento Automatizado de Café com Séries… *Anais do XVII WCAMA*, 108–117. https://doi.org/10.5753/wcama.2026.22833 — **só resumo**. [VERIFICAR]
-- **[S4]** Pisl, J.; Lenczner, G.; Tuia, D.; de Morsier, F. (2024). Semantic Segmentation of Coffee Plantations from Sentinel-2 Time Series. *IGARSS 2024*, 1526–1530. https://doi.org/10.1109/IGARSS53475.2024.10642247 — **só metadados (Crossref)**. [VERIFICAR]
-- **[S5]** Ribeiro, J. M. et al. (2026). Semantic Segmentation of Coffee Regions From Satellite Images Using Deep Learning. *RITA*, 33(2), 202–209. https://doi.org/10.22456/2175-2745.150916 — **resumo e introdução lidos** (CC BY-NC-ND). [VERIFICAR]
-- **[S6]** MapBiomas (2026). *Agriculture and Forest Plantation – Appendix, Collection 11* (revisado). https://brasil.mapbiomas.org/wp-content/uploads/sites/3/2026/08/Agriculture-and-Forest-Plantation-Appendix_C11-REVISADO.pdf — **lido** (seções 2.2.4, 2.4, 3.2.5 e 5.1). [VERIFICAR]
+- **[S1]** Alves, H. M. R.; Volpato, M. M. L.; Campos, B. F. D. (2021). *Mapeamento automatizado de áreas de café em Minas Gerais*. Brasília: Embrapa Café (Documentos, 13). https://www.infoteca.cnptia.embrapa.br/infoteca/handle/doc/1134278 — PDF: …/bitstream/doc/1134278/1/Embrapa-Cafe-Serie-Documentos-13.pdf. **Texto completo lido** (métodos e Tabela 8).
+- **[S2]** Marujo, R. F. B.; Moreira, M. A.; Volpato, M. M. L.; Alves, H. M. R. (2017). Mapeamento da cultura cafeeira por meio de classificação automática utilizando atributos espectrais, texturais e fator de iluminação. *Coffee Science*, 12(2), 164–175. https://www.alice.cnptia.embrapa.br/alice/bitstream/doc/1089248/1/Mapeamentodaculturacafeeirapormeiodeclassificacao.pdf — **resumo e introdução lidos** (DOI não conferido).
+- **[S3]** Moreno, C. L.; Souza, V. C. O.; Paula, M. M. V.; Volpato, M. M. L.; Alves, H. M. R. (2026). Deep Learning e Agricultura Digital: Avaliação de Arquiteturas para Mapeamento Automatizado de Café com Séries… *Anais do XVII WCAMA*, 108–117. https://doi.org/10.5753/wcama.2026.22833 — **só resumo**.
+- **[S4]** Pisl, J.; Lenczner, G.; Tuia, D.; de Morsier, F. (2024). Semantic Segmentation of Coffee Plantations from Sentinel-2 Time Series. *IGARSS 2024*, 1526–1530. https://doi.org/10.1109/IGARSS53475.2024.10642247 — **só metadados (Crossref)**.
+- **[S5]** Ribeiro, J. M. et al. (2026). Semantic Segmentation of Coffee Regions From Satellite Images Using Deep Learning. *RITA*, 33(2), 202–209. https://doi.org/10.22456/2175-2745.150916 — **resumo e introdução lidos** (CC BY-NC-ND).
+- **[S6]** MapBiomas (2026). *Agriculture and Forest Plantation – Appendix, Collection 11* (revisado). https://brasil.mapbiomas.org/wp-content/uploads/sites/3/2026/08/Agriculture-and-Forest-Plantation-Appendix_C11-REVISADO.pdf — **lido** (seções 2.2.4, 2.4, 3.2.5 e 5.1).
 - **[S7]** MapBiomas, arquivos GeoTIFF oficiais (listados em https://brasil.mapbiomas.org/downloads/mapas-para-download-geotiff/). Licença CC BY 4.0 (rodapé de brasil.mapbiomas.org/downloads/). Arquivos abertos e recortados com GDAL `/vsicurl/`:
   - 30 m, C11: `https://storage.googleapis.com/mapbiomas-public/initiatives/brasil/collection11/lulc/coverage/brazil_coverage/brazil_coverage-col11_{2023,2024,2025}.tif` (EPSG:4326, LZW).
   - 10 m, C4: `…/initiatives/brasil/lulc_10m/collection4/coverage/brazil_coverage/brazil_coverage-col4_10m_2025.tif`. Não tem classe café, só perene (36).
   - C10: `…/collection_10/lulc/coverage/brazil_coverage_{1985..2024}.tif`.
   - Recorte: `gdalwarp -t_srs EPSG:32723 -te 323200 7637860 328320 7642980 -tr 10 10 -r near /vsicurl/<url> mb.tif`. Lê só os blocos necessários, em segundos.
   - Citação: Souza Jr. et al. 2020, https://doi.org/10.3390/rs12172735.
-  - [VERIFICAR] se a página de termos exige um texto de atribuição específico.
-- **[S8]** IBGE, SIDRA, tabela 1613 (PAM, lavouras permanentes), Guaxupé (3128709), café total: área colhida de 3.950 ha em 2023 e em 2024. https://apisidra.ibge.gov.br/values/t/1613/n6/3128709/v/216,2313/p/2023,2024/c82/2723 — consultado via API. Limite municipal: https://servicodados.ibge.gov.br/api/v3/malhas/municipios/3128709?formato=application/vnd.geo%2Bjson. [VERIFICAR]
+  - Atribuição: a página de downloads diz que os dados são de uso público, aberto e gratuito "mediante referência" (CC BY 4.0); não pede texto fixo. Citamos Souza Jr. et al. (2020) e a coleção.
+- **[S8]** IBGE, SIDRA, tabela 1613 (PAM, lavouras permanentes), Guaxupé (3128709), café total: área colhida de 3.950 ha em 2023 e em 2024. https://apisidra.ibge.gov.br/values/t/1613/n6/3128709/v/216,2313/p/2023,2024/c82/2723 — consultado via API. Limite municipal: https://servicodados.ibge.gov.br/api/v3/malhas/municipios/3128709?formato=application/vnd.geo%2Bjson.
 - Algoritmos (só metadados Crossref; texto não lido):
   - Haralick, Shanmugam & Dinstein (1973), Textural Features for Image Classification, *IEEE TSMC*, https://doi.org/10.1109/TSMC.1973.4309314;
   - Achanta et al. (2012), SLIC Superpixels…, *IEEE TPAMI*, https://doi.org/10.1109/TPAMI.2012.120;
   - Felzenszwalb & Huttenlocher (2004), *IJCV*, https://doi.org/10.1023/B:VISI.0000022288.19776.77;
   - Breiman (2001), Random Forests, *Machine Learning*, https://doi.org/10.1023/A:1010933404324.
-  - [VERIFICAR]
 
 Não usadas por não terem sido verificadas:
 - Estudo "U-Net + Sentinel-1/2 em Machado (92,3 %)": apareceu só em snippet de busca, sem link primário aberto.
