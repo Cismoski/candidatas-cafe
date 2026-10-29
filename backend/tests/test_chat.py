@@ -527,7 +527,7 @@ def test_reference_absent(ref):
     assert "concordância com o MapBiomas" not in chat.automatic_answer("qual a acurácia?", s)
 
 
-@pytest.mark.parametrize("bad", ["2025-13-45", "2025-02-30T10:00:00Z", None])
+@pytest.mark.parametrize("bad", ["2025-13-45", "2025-02-30T10:00:00Z", None, 20250817])
 def test_invalid_or_missing_date_never_breaks_the_introduction(bad):
     """Regressão: summary com data inexistente fazia GET/POST do chat responder 500."""
     s = summary()
@@ -544,6 +544,7 @@ def test_invalid_or_missing_date_never_breaks_the_introduction(bad):
         ("A área candidata total é de 0,66 ha.", ["0,66"]),  # NDVI usado como área
         ("São 2 ha de candidatas.", ["2"]),  # inteiro pequeno não é livre com unidade
         ("Metade das candidatas é pastagem.", ["metade"]),
+        ("Os 5 polígonos maiores somam 155,31 ha.", ["5 poligonos"]),  # acima do total
         ("Cerca de dois terços da área é café.", ["dois tercos"]),
         ("A área é 1e3 hectares.", ["1e3"]),
     ],
@@ -560,6 +561,10 @@ def test_counts_areas_and_fractions_must_match_the_context(text, bad):
         "A área mínima de polígono é 0,5 ha.",
         "O polígono nº 2 tem 8,33 ha e NDVI 0,55.",
         "Mostro 3 polígonos da lista.",
+        # revisão: subconjunto e posição não são contagem nem fração
+        "Os dois polígonos maiores somam 155,31 ha.",
+        "Os 2 polígonos do norte têm NDVI 0,55.",
+        "Há candidatas na metade sul da cena.",
     ],
 )
 def test_true_counts_and_areas_pass(text):
@@ -576,6 +581,9 @@ def test_true_counts_and_areas_pass(text):
         "A classificação é precisa.",
         "Estas áreas são café, confirmadas pelo processamento.",
         "Esses talhões são café.",
+        "Não sei os números, mas o método acerta.",  # negação longe da afirmação
+        "O maior polígono é café.",
+        "As candidatas foram confirmadas como café.",
     ],
 )
 def test_qualitative_accuracy_claims_detected(text):
@@ -590,6 +598,10 @@ def test_qualitative_accuracy_claims_detected(text):
         "Elas não são café necessariamente: são candidatas.",
         "Os polígonos são café em potencial, não café confirmado.",
         "Sem verdade de campo, nada aqui foi confirmado.",
+        # revisão: ressalvas comuns que a guarda recusava
+        "As candidatas precisam ser confirmadas em campo.",
+        "A regra separa pasto e café pelo vigor na seca.",
+        "Para saber se o método acerta seria preciso ir a campo.",
     ],
 )
 def test_honest_caveats_are_not_flagged(text):

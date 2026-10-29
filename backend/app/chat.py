@@ -220,19 +220,26 @@ _QUALITY_CLAIM = re.compile(
     r"|\b(?:e|sao|foi|foram|esta|estao)\s+(?:\w+\s+)?confiave(?:l|is)\b"
     r"|\b(?:resultado|metodo|classificacao|mapa|mapeamento|identificacao)\w*\s+"
     r"(?:\w+\s+){0,2}(?:e|sao|foi|esta)\s+(?:\w+\s+){0,1}(?:precis[oa]s?|exat[oa]s?)\b"
-    r"|\bconfirmad[ao]s?\b"
-    r"|\b(?:sao|e)\s+(?:de\s+)?cafe\b(?!\s+(?:em potencial|potencial|candidat))"
+    # "precisam ser confirmadas" é a ressalva pedida; só a afirmação conta
+    r"|\b(?:e|sao|foi|foram|esta|estao)\s+(?:\w+\s+)?confirmad[ao]s?\b"
+    # "separa pasto e café" não afirma nada: "é café" precisa de um sujeito do resultado
+    r"|(?:\bsao|\b(?:area|poligono|talh|candidat|mancha)\w*\s+(?:\w+\s+){0,2}e)"
+    r"\s+(?:de\s+)?cafe\b(?!\s+(?:em potencial|potencial|candidat))"
 )
-_NEGATION = re.compile(r"\b(?:nao|nem|sem|nada|nenhum[a]?|jamais|nunca|necessariamente)\b")
+# Negação ou condição nas 3 palavras antes da afirmação ("se o método acerta")
+_NEGATION = {"nao", "nem", "sem", "nada", "nenhum", "nenhuma", "jamais", "nunca", "se"}
+_NEGATION_WORDS = 3
 # Frações por extenso também são números ("metade das candidatas é pasto")
 _FRACTION_WORDS = re.compile(
-    r"\b(?:metade|(?:um|dois|1|2)\s+tercos?|(?:um|tres|1|3)\s+quartos?\s+d)"
+    r"\b(?:metade(?=\s+d(?:[aoe]|as|os)\b)|(?:um|dois|1|2)\s+tercos?|(?:um|tres|1|3)\s+quartos?\s+d)"
 )
 _SMALL_WORDS = {
     "zero": 0, "um": 1, "uma": 1, "dois": 2, "duas": 2, "tres": 3, "quatro": 4, "cinco": 5,
     "seis": 6, "sete": 7, "oito": 8, "nove": 9, "dez": 10, "onze": 11, "doze": 12,
 }  # fmt: skip
 _COUNT = re.compile(r"(?<![\w.,])(\d+|" + "|".join(_SMALL_WORDS) + r")\s+(?:poligonos|talhoes)\b")
+# Contagem dada como total ("são 7 polígonos"); "os 3 maiores polígonos" é subconjunto
+_TOTAL_WORDS = {"sao", "ha", "foram", "total", "encontrei", "encontrados", "existem", "tem"}
 _HECTARE = re.compile(r"\s*(?:ha\b|hectares?\b)", re.IGNORECASE)
 # id da cena e nome da fonte têm dígitos que não são medidas ("Coleção 11", "30 m")
 _SKIP_KEYS = {"cena", "fonte"}
@@ -364,9 +371,11 @@ def unsupported_numbers(reply: str, allowed: Allowed) -> list[str]:
     bad += [m.group(0) for m in _FRACTION_WORDS.finditer(norm)]
     bad += re.findall(r"\d(?:[.,]\d+)?e[+-]?\d+", norm)  # notação científica: "1e3"
     # "7 polígonos" ou "sete talhões": inteiro pequeno não é livre quando é contagem
+    # Subconjunto ("os 3 maiores polígonos") passa se não passar do total.
     for m in _COUNT.finditer(norm):
         n = int(m.group(1)) if m.group(1).isdigit() else _SMALL_WORDS[m.group(1)]
-        if n not in allowed.counts:
+        as_total = _TOTAL_WORDS & set(re.findall(r"\w+", norm[: m.start()])[-2:])
+        if n not in allowed.counts and (as_total or n > max(allowed.counts, default=0)):
             bad.append(m.group(0))
     return bad
 
@@ -380,7 +389,8 @@ def accuracy_claim(reply: str) -> bool:
     if _ACCURACY_ADJ.search(t):
         return True
     for m in _QUALITY_CLAIM.finditer(t):
-        if not _NEGATION.search(t[max(0, m.start() - 30) : m.start()]):
+        before = re.findall(r"\w+", t[: m.start()])[-_NEGATION_WORDS:]
+        if not _NEGATION.intersection(before):
             return True
     for m in _ACCURACY.finditer(t):
         window = t[max(0, m.start() - 40) : m.end() + 40]
@@ -410,7 +420,7 @@ def _pct(v: float) -> str:
 def _date_br(iso: str | None) -> str:
     try:
         return datetime.fromisoformat(iso.replace("Z", "+00:00")).strftime("%d/%m/%Y")
-    except (AttributeError, ValueError):  # None ou summary antigo com data inválida
+    except (AttributeError, TypeError, ValueError):  # None, não texto ou data inválida
         return "data desconhecida"
 
 
