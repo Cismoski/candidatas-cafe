@@ -15,6 +15,8 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from .ports import DuplicateRequest, QuotaExceeded  # noqa: F401 (contrato do Repository)
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
     id          TEXT PRIMARY KEY,
@@ -72,14 +74,6 @@ def now() -> datetime:
 
 def iso(dt: datetime) -> str:
     return dt.isoformat(timespec="seconds")
-
-
-class QuotaExceeded(Exception):
-    pass
-
-
-class DuplicateRequest(Exception):
-    """Idempotency-Key já usada por este usuário."""
 
 
 class Database:

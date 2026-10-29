@@ -9,8 +9,9 @@ import pytest
 from PIL import Image
 
 from app import jobs
-from app.db import Database, QuotaExceeded, iso, now
+from app.db import Database, iso, now
 from app.main import sweep
+from app.ports import QuotaExceeded
 from tests.api.conftest import upload
 from tests.conftest import make_scene, write_stack
 

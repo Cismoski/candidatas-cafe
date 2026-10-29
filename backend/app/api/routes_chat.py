@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException, Request
 from slowapi import Limiter
 
 from .. import chat
-from ..db import QuotaExceeded
+from ..ports import QuotaExceeded
 from ..ratelimit import user_or_ip
 from ..services import Services
 from .deps import NOT_FOUND, User, done

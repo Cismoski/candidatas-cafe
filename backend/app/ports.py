@@ -66,6 +66,14 @@ class ChatModel(Protocol):
 
 
 # --- persistência ------------------------------------------------------------------------
+class QuotaExceeded(Exception):
+    """consume_quota: limite da janela atingido (vira 429 na rota)."""
+
+
+class DuplicateRequest(Exception):
+    """create_analysis: Idempotency-Key já usada por este usuário (a outra requisição venceu)."""
+
+
 @runtime_checkable
 class Repository(Protocol):
     """Usuários, análises, cotas, chat e tokens revogados. Toda leitura de

@@ -10,7 +10,7 @@ from starlette.datastructures import UploadFile
 from starlette.formparsers import MultiPartException
 
 from ..auth import CurrentUser
-from ..db import DuplicateRequest, QuotaExceeded
+from ..ports import DuplicateRequest, QuotaExceeded
 from ..ratelimit import client_ip, user_or_ip
 from ..services import Services
 from ..storage import DOWNLOADS, INPUT_NAMES
