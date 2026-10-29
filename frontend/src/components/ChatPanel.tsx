@@ -1,6 +1,6 @@
 import { useMutationState } from "@tanstack/react-query";
 import { type FormEvent, type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
-import { keys, useAsk, useChat } from "../api/queries";
+import { keys, useAnalysisFile, useAsk, useChat } from "../api/queries";
 import type { ChatMessage } from "../api/types";
 import { ErrorNote } from "./ErrorNote";
 
@@ -72,6 +72,7 @@ export function ChatPanel({ analysisId, polygonIds, onFocusPolygon }: Props) {
   return (
     <section className="chat" aria-label="Assistente da análise">
       <div className="chat__log" role="log" aria-live="polite" aria-relevant="additions">
+        <ClassificationFigure analysisId={analysisId} />
         {messages.map((m) => (
           <Message key={m.id} m={m} polygonIds={polygonIds} onFocusPolygon={onFocusPolygon} />
         ))}
@@ -185,4 +186,35 @@ export function withPolygonLinks(
       </button>
     );
   });
+}
+
+/**
+ * A imagem que o assistente apresenta: o mesmo PNG do download (cor verdadeira
+ * com os polígonos e a legenda), gerado pelo servidor nesta análise.
+ */
+function ClassificationFigure({ analysisId }: { analysisId: string }) {
+  const png = useAnalysisFile(analysisId, "png", true);
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!png.data) return;
+    const u = URL.createObjectURL(png.data);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [png.data]);
+
+  if (png.isError) return <p className="note">Não foi possível carregar a imagem da classificação.</p>;
+  return (
+    <figure className="chat__figure" aria-busy={!url}>
+      {url ? (
+        <a href={url} target="_blank" rel="noopener">
+          <img src={url} alt="Imagem da análise com os polígonos candidatos a café em destaque" />
+        </a>
+      ) : (
+        <div className="chat__figure-placeholder" role="status">
+          Carregando a imagem da classificação…
+        </div>
+      )}
+      <figcaption>Classificação desta análise (polígonos candidatos sobre a cor verdadeira).</figcaption>
+    </figure>
+  );
 }

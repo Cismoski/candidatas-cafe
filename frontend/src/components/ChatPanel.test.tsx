@@ -215,3 +215,34 @@ it("análise não concluída (409) explica", async () => {
   show();
   await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("quando a análise terminar"));
 });
+
+it("mostra a imagem da classificação no topo da conversa e libera a URL ao sair", async () => {
+  // jsdom não implementa createObjectURL; spies são restaurados no fim do teste
+  URL.createObjectURL ??= () => "";
+  URL.revokeObjectURL ??= () => {};
+  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:classificacao");
+  const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  mockFetch({
+    [`GET ${PATH}`]: () => json({ messages: [INTRO], remaining_today: null }),
+    [`GET /analyses/${ID}/files/png`]: () => new Response(new Blob(["png"], { type: "image/png" })),
+  });
+  const { unmount } = renderWithProviders(
+    <ChatPanel analysisId={ID} polygonIds={new Set()} onFocusPolygon={vi.fn()} />,
+  );
+  expect(await screen.findByText("Carregando a imagem da classificação…")).toBeInTheDocument();
+  const img = await screen.findByRole("img", { name: /polígonos candidatos a café/ });
+  expect(img).toHaveAttribute("src", "blob:classificacao");
+  expect(within(screen.getByRole("log")).getByRole("img")).toBe(img);
+  unmount();
+  expect(revoke).toHaveBeenCalledWith("blob:classificacao");
+});
+
+it("sem a imagem, a conversa segue e avisa", async () => {
+  mockFetch({
+    [`GET ${PATH}`]: () => json({ messages: [INTRO], remaining_today: null }),
+    [`GET /analyses/${ID}/files/png`]: () => json({ detail: "x" }, 404),
+  });
+  show();
+  expect(await screen.findByText("Não foi possível carregar a imagem da classificação.")).toBeInTheDocument();
+  expect(screen.getByText(/90 polígonos candidatos/)).toBeInTheDocument();
+});

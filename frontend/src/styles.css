@@ -1081,6 +1081,35 @@ details.block p,
   padding-right: 0.25rem;
 }
 
+.chat__figure {
+  margin: 0;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.chat__figure img,
+.chat__figure-placeholder {
+  display: block;
+  width: 100%;
+  max-width: 22rem;
+  aspect-ratio: 1;
+  object-fit: contain;
+  border: 1px solid var(--ink-2);
+  background: var(--ground);
+}
+
+.chat__figure-placeholder {
+  display: grid;
+  place-items: center;
+  font-size: var(--t-12);
+  color: var(--ink-2);
+}
+
+.chat__figure figcaption {
+  font-size: var(--t-12);
+  color: var(--ink-2);
+}
+
 .msg__text {
   font-size: var(--t-14);
   line-height: 1.55;
