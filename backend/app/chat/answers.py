@@ -1,8 +1,8 @@
 """Respostas automáticas: determinísticas, por palavras-chave e templates sobre o summary."""
 
 import re
-from datetime import datetime
 
+from ..values import AcquisitionDate
 from .context import mentioned_polygon_ids
 from .text import _norm
 
@@ -19,11 +19,8 @@ def _pct(v: float) -> str:
     return f"{v * 100:.1f}".replace(".", ",") + "%"
 
 
-def _date_br(iso: str | None) -> str:
-    try:
-        return datetime.fromisoformat(iso.replace("Z", "+00:00")).strftime("%d/%m/%Y")
-    except (AttributeError, TypeError, ValueError):  # None, não texto ou data inválida
-        return "data desconhecida"
+def _date_br(raw: object) -> str:
+    return AcquisitionDate.parse(raw).br()
 
 
 def _cls(summary: dict, key: str) -> float:

@@ -4,6 +4,7 @@ import json
 import re
 from collections.abc import Iterable
 
+from ..values import AcquisitionDate
 from .text import _norm
 
 MAX_MESSAGE_CHARS = 500
@@ -37,8 +38,8 @@ CONTEXTO (JSON):
 
 
 # --- contexto -----------------------------------------------------------------------
-def _date(iso: str | None) -> str | None:
-    return iso[:10] if iso else None
+def _date(raw: object) -> str | None:
+    return AcquisitionDate.parse(raw).iso()
 
 
 def _poly(p: dict) -> dict:
