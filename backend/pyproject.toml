@@ -70,4 +70,6 @@ source_paths = [
     "app/processing/pipeline.py",
     "app/processing/config.py",
 ]
-also_copy = ["app/", "config/", "tests/"]
+also_copy = ["app/", "config/", "tests/", ".env.example"]
+# O teste do script de download importa ../scripts, que não é copiado para mutants/
+pytest_add_cli_args = ["--ignore=tests/test_baixar_cena.py"]
