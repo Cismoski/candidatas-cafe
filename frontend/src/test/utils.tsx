@@ -19,6 +19,15 @@ export function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
 
+/**
+ * Resposta binária (PNG) para as rotas de arquivo. Não usar
+ * `new Response(new Blob(...))`: o Blob do jsdom não é um corpo válido para o
+ * Response do Node (no 22 quebra em `.stream`, no 24 vira "[object Blob]").
+ */
+export function png(): Response {
+  return new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), { headers: { "Content-Type": "image/png" } });
+}
+
 export interface Call {
   url: string;
   method: string;

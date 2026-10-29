@@ -2,7 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import type { ChatMessage } from "../api/types";
-import { json, mockFetch, renderWithProviders, signIn } from "../test/utils";
+import { json, mockFetch, png, renderWithProviders, signIn } from "../test/utils";
 import { ChatPanel } from "./ChatPanel";
 
 const ID = "11111111-1111-4111-8111-111111111111";
@@ -237,7 +237,7 @@ it("mostra a imagem da classificação no topo da conversa e libera a URL ao sai
   const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
   mockFetch({
     [`GET ${PATH}`]: () => json({ messages: [INTRO], remaining_today: null }),
-    [`GET /analyses/${ID}/files/png`]: () => new Response(new Blob(["png"], { type: "image/png" })),
+    [`GET /analyses/${ID}/files/png`]: png,
   });
   const { unmount } = renderWithProviders(
     <ChatPanel analysisId={ID} polygonIds={new Set()} onFocusPolygon={vi.fn()} />,

@@ -1,7 +1,7 @@
 import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
-import { json, makeAnalysis, mockFetch, renderWithProviders, signIn } from "./test/utils";
+import { json, makeAnalysis, mockFetch, png, renderWithProviders, signIn } from "./test/utils";
 
 vi.mock("./map/MapView", () => ({
   MapView: (p: { analysisId: string | null; polygons: unknown; reference?: Blob | null }) => (
@@ -34,8 +34,8 @@ it("com sessão abre a análise mais recente com mapa, legenda e atribuição", 
   mockFetch({
     "GET /analyses": () => json([item]),
     [`GET /analyses/${a.id}`]: () => json(a),
-    [`GET /analyses/${a.id}/files/overlay-rgb`]: () => new Response(new Blob(["png"])),
-    [`GET /analyses/${a.id}/files/overlay-classes`]: () => new Response(new Blob(["png"])),
+    [`GET /analyses/${a.id}/files/overlay-rgb`]: png,
+    [`GET /analyses/${a.id}/files/overlay-classes`]: png,
     [`GET /analyses/${a.id}/files/geojson`]: () => json({ type: "FeatureCollection", features: [] }),
   });
   renderWithProviders(<App />);
@@ -65,8 +65,8 @@ it("análise em processamento é consultada até concluir (polling)", async () =
       n += 1;
       return json(n < 2 ? { ...a, status: "processing", summary: null } : a);
     },
-    [`GET /analyses/${a.id}/files/overlay-rgb`]: () => new Response(new Blob(["png"])),
-    [`GET /analyses/${a.id}/files/overlay-classes`]: () => new Response(new Blob(["png"])),
+    [`GET /analyses/${a.id}/files/overlay-rgb`]: png,
+    [`GET /analyses/${a.id}/files/overlay-classes`]: png,
     [`GET /analyses/${a.id}/files/geojson`]: () => json({ type: "FeatureCollection", features: [] }),
   });
   renderWithProviders(<App />);
@@ -81,8 +81,8 @@ it("link para análise inexistente/de outro usuário (404) volta para a lista", 
     "GET /analyses": () => json([item]),
     "GET /analyses/22222222-2222-4222-8222-222222222222": () => json({ detail: "Análise não encontrada." }, 404),
     [`GET /analyses/${a.id}`]: () => json(a),
-    [`GET /analyses/${a.id}/files/overlay-rgb`]: () => new Response(new Blob(["png"])),
-    [`GET /analyses/${a.id}/files/overlay-classes`]: () => new Response(new Blob(["png"])),
+    [`GET /analyses/${a.id}/files/overlay-rgb`]: png,
+    [`GET /analyses/${a.id}/files/overlay-classes`]: png,
     [`GET /analyses/${a.id}/files/geojson`]: () => json({ type: "FeatureCollection", features: [] }),
   });
   renderWithProviders(<App />);
@@ -188,9 +188,9 @@ it("camada do MapBiomas só é baixada quando o usuário a liga na legenda", asy
   const { calls } = mockFetch({
     "GET /analyses": () => json([{ ...withRef, summary: undefined }]),
     [`GET /analyses/${withRef.id}`]: () => json(withRef),
-    [`GET /analyses/${withRef.id}/files/overlay-rgb`]: () => new Response(new Blob(["png"])),
-    [`GET /analyses/${withRef.id}/files/overlay-classes`]: () => new Response(new Blob(["png"])),
-    [`GET /analyses/${withRef.id}/files/overlay-reference`]: () => new Response(new Blob(["png"])),
+    [`GET /analyses/${withRef.id}/files/overlay-rgb`]: png,
+    [`GET /analyses/${withRef.id}/files/overlay-classes`]: png,
+    [`GET /analyses/${withRef.id}/files/overlay-reference`]: png,
     [`GET /analyses/${withRef.id}/files/geojson`]: () => json({ type: "FeatureCollection", features: [] }),
   });
   renderWithProviders(<App />);
