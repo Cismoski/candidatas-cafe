@@ -93,7 +93,7 @@ de 15 min. Por isso `.github/workflows/keepalive.yml` chama o `/health` a cada
   também desativa crons de repositórios sem atividade por 60 dias.
 
 Configurar em Settings > Secrets and variables > Actions > Variables:
-`KEEPALIVE_URL=https://<servico>.onrender.com/health` e
+`KEEPALIVE_URL=https://cafe-candidatas-api.onrender.com/health` e
 `KEEPALIVE_UNTIL=AAAA-MM-DD` (último dia, UTC).
 
 ## Cotas da aplicação
@@ -146,7 +146,7 @@ OAuth Client do Google já usado em desenvolvimento.
    serviço reinicia sozinho).
 6. **Verificação**:
    ```bash
-   uv run scripts/smoke.py --api https://<api>.onrender.com --web https://<app>.pages.dev
+   uv run scripts/smoke.py --api https://cafe-candidatas-api.onrender.com --web https://candidatas-cafe.gabrielcismoski.workers.dev
    ```
    Confere `/health` (esperando o serviço acordar), 401 sem token, CORS só para a
    origem do Pages, headers de segurança da API e do Pages, CSP com a API e

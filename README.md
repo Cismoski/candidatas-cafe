@@ -9,7 +9,7 @@ processamento.
 > aqui é acurácia. A comparação com o MapBiomas mede concordância com outro mapa,
 > e ela é baixa (IoU ≈ 0,04). Ver [Limitações](#limitações).
 
-- **Aplicação:** `<URL do Cloudflare Pages>` (API: `<URL do Render>`) [PREENCHER APÓS O DEPLOY]
+- **Aplicação:** https://candidatas-cafe.gabrielcismoski.workers.dev/ (API: https://cafe-candidatas-api.onrender.com, que dorme após 15 min sem uso; ver [deploy](docs/deploy.md))
 - **Nota de pesquisa:** [`docs/nota-pesquisa.md`](docs/nota-pesquisa.md)
 - **Uso de IA:** [`docs/uso-de-ia.md`](docs/uso-de-ia.md)
 - **Deploy, cotas, sono e retenção:** [`docs/deploy.md`](docs/deploy.md)
