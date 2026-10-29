@@ -62,6 +62,24 @@ Por que a mediana da vegetação:
 - A mediana é robusta às próprias candidatas, que são uma fração pequena dessa população.
 - Usar toda a terra incluiria o solo exposto, que reverdece muito mais na chuva.
 
+**Revisão posterior: a escolha foi circular.** A tabela acima mede quanto cada
+variante *mantém*, não se acerta. Contra o café do MapBiomas
+(`scripts/sensibilidade_temporal.py`):
+
+| Variante (ago/2025 + fev/2025) | Área | IoU | Precisão | Revocação |
+|---|---|---|---|---|
+| Δ bruto (original) | 25,6 ha | 0,037 | 0,096 | 0,057 |
+| Δ − mediana da vegetação (app) | 109,4 ha | 0,044 | 0,059 | 0,150 |
+| Δ no p5–p95 da mata (+0,074 a +0,175) | 1,9 ha | 0,000 | — | 0,000 |
+| \|Δ − mediana da mata\| ≤ 0,075 | 8,3 ha | 0,015 | 0,094 | 0,018 |
+| Perene ±0,15 + rugoso > 2× mata, sem Otsu | 445,1 ha | 0,046 | 0,048 | 0,496 |
+
+IoU de acaso para a área do app: 0,012. O café do MapBiomas varia como a
+vegetação da cena (Δ corrigido ≈ 0), enquanto as candidatas sobem +0,14 a mais:
+a rejeição da regra original podia estar certa. Nenhuma variante sem rótulos se
+destaca do ruído. A do app foi mantida por ter mais revocação, o que serve a uma
+triagem para conferência; a troca está na nota de pesquisa.
+
 ## Limitação medida: uma data só depende da estação
 
 Comparando as análises de uma data só:
@@ -69,7 +87,9 @@ Comparando as análises de uma data só:
 - Dos pixels candidatos em ago/2025, em fev/2025 76% viraram dossel fechado, 12%
   vegetação descartada e 11% continuaram candidatos.
 
-Na chuva o café atinge NDVI de mata (limiar de Otsu em fev/2025: 0,77; η 0,744).
+Na chuva o café passa do limiar de dossel fechado (Otsu em fev/2025: 0,77;
+η 0,744), embora fique abaixo da mata: mediana do NDVI de fevereiro 0,79 no café
+do MapBiomas e 0,91 na formação florestal.
 A hipótese "café = vigor intermediário" só vale na seca. A análise agora avisa
 quando a imagem principal é de outubro a março.
 
@@ -124,8 +144,8 @@ Leitura:
 
 Nada disso é acurácia: o MapBiomas é outro mapa, a 30 m, que não publica
 acurácia específica para café. Uma conferência ad hoc (recorte do COG via `/vsicurl/`, cruzado com
-`classes.tif`) deu os mesmos números da aplicação. Essa conferência não tem
-script no repositório; a reprodução oficial é rodar a análise na aplicação.
+`classes.tif`) deu os mesmos números da aplicação. A comparação entre variantes
+da regra temporal está em `scripts/sensibilidade_temporal.py`.
 
 ## Reprodução
 

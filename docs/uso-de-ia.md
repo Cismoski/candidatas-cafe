@@ -30,7 +30,8 @@ o método é por regras, escrito e testado aqui.
   - bun no lugar de pnpm;
   - imagem Docker sem root e fixada por sha256;
   - circuit breaker no chat;
-  - **desconto sazonal pela mediana da cena** na regra temporal, entre opções medidas;
+  - **desconto sazonal pela mediana da cena** na regra temporal, entre opções medidas
+    (depois revisto: ver o erro "critério circular" abaixo);
   - **MapBiomas como camada de referência**, e não como segundo método, depois da pesquisa de alternativas.
 
 **A IA fez:**
@@ -73,7 +74,8 @@ que nada foi aceito sem conferência. A coluna "Rastro" diz onde conferir;
 | Erro | Como apareceu | Correção | Rastro |
 |---|---|---|---|
 | Relatar como prontos arquivos que não existiam | Conferência do disco na fase 2 | Passei a conferir arquivos e testes, não o relato | sessão |
-| Premissa errada na regra temporal ("o café sobe ~0,20 na chuva") | Medição com a cena de fevereiro: a regra rejeitava 65% das candidatas | Desconto sazonal, escolhido entre cinco variantes medidas ([nota](nota-pesquisa.md#erro-encontrado)) | commit 5e11a2f |
+| Premissa errada na regra temporal ("o café sobe ~0,20 na chuva") | Medição com a cena de fevereiro: a regra rejeitava 65% das candidatas | Desconto sazonal, escolhido entre cinco variantes medidas | commit 5e11a2f |
+| A própria correção acima escolheu a variante por quanto ela *mantinha*, critério circular | Revisão de metodologia por outro agente | Variantes medidas contra o MapBiomas em script; a regra foi mantida, com a troca documentada ([nota](nota-pesquisa.md#erro-encontrado)) | `scripts/sensibilidade_temporal.py` |
 | Contrato divergente entre módulos (`"temporal"` × `"two_dates"`) | Teste de ponta a ponta da segunda data | Contrato único e teste | commit e21f703 |
 | Aritmética errada em testes (ex.: 50 × 20 em vez de 40 × 20) | O próprio teste falhou | Valores recalculados à mão | sessão |
 | Timeouts do GDAL que somavam até 120 s | Revisão da fase 5 | Prazo total de 30 s e teste com servidor que não responde | commit 7a3d9bb |

@@ -177,9 +177,11 @@ def classify(
     if other_ndvi is not None:
         # Café é perene: continua vegetado na outra data e varia pouco EM
         # RELAÇÃO À VEGETAÇÃO DA CENA. Entre seca e chuva toda a vegetação sobe
-        # de NDVI; comparar o Δ bruto com um limite fixo descartava café por
-        # sazonalidade (medido: 65% das candidatas de ago/2025 contra fev/2025).
+        # de NDVI; comparar o Δ bruto com um limite fixo rejeitava 65% das
+        # candidatas de ago/2025 contra fev/2025.
         # Por isso o Δ de cada pixel é comparado com o Δ mediano da vegetação.
+        # Contra o MapBiomas isso troca precisão por revocação, com IoU igual
+        # (scripts/sensibilidade_temporal.py); mantido porque o app é triagem.
         # A mediana é robusta às próprias candidatas (fração pequena da
         # vegetação); se elas forem a maior parte da cena, o desconto absorveria
         # a mudança delas, e isso está nas limitações.

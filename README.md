@@ -77,8 +77,8 @@ Por que assim:
 | Forma | Abertura morfológica; manchas ≥ 0,5 ha; polígonos com área em UTM | `morphology` |
 | Referência | Concordância com o café do MapBiomas do ano da imagem (IoU, frações) | `MAPBIOMAS_URL` |
 
-Imagens de outubro a março recebem um aviso: na chuva o café atinge NDVI de mata
-e a hipótese de "vigor intermediário" deixa de valer.
+Imagens de outubro a março recebem um aviso: na chuva o café passa do limiar de
+dossel fechado e a hipótese de "vigor intermediário" deixa de valer.
 
 ## Limitações
 
@@ -87,8 +87,15 @@ e a hipótese de "vigor intermediário" deixa de valer.
   36,5% do café do MapBiomas cai em "dossel fechado". IoU com o MapBiomas: 0,038
   (agosto) e 0,044 (agosto + fevereiro). Os números estão em
   [`docs/research/fase5-segunda-data.md`](docs/research/fase5-segunda-data.md).
+- A mesma área espalhada ao acaso teria IoU 0,013 com o MapBiomas: há sinal,
+  mas fraco.
 - Com uma data só, o resultado depende da estação: agosto e fevereiro concordam
   com IoU 0,05.
+- A regra temporal do app favorece a revocação. A regra original tinha mais
+  precisão (0,096 × 0,059) com IoU equivalente; a comparação, com variantes sem
+  rótulos ancoradas na mata, sai de `scripts/sensibilidade_temporal.py`.
+- Agosto é colheita e poda: talhão colhido ou recepado pode cair em "solo e
+  vegetação rala". Lavoura de inverno irrigada entra como candidata.
 - Limiares calibrados numa cena seca do Sul de MG; 4 bandas (sem SWIR nem
   red-edge); SCL a 20 m.
 - Aceita só GeoTIFF em UTM, uint16, de 5 a 60 m, até 1500 × 1500 px.

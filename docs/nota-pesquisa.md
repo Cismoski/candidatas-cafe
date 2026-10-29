@@ -9,20 +9,13 @@ bandas B02, B03, B04 e B08, mais a SCL, sem rótulos. Sem verdade de campo, o
 produto honesto é um mapa de **áreas candidatas**, feito com regras
 explicáveis, e não uma classificação com acurácia.
 
-Para cada imagem enviada, o método:
-
-1. converte para reflectância e usa a SCL só como máscara de qualidade;
-2. calcula NDVI, NDWI e SAVI [2];
-3. exclui:
-    - água (NDWI > 0);
-    - solo e vegetação rala (NDVI < 0,45);
-    - dossel fechado, com o limiar de Otsu [3] sobre o NDVI da vegetação;
-    - uma faixa de 10 m em volta dos núcleos de mata.
-4. aplica abertura morfológica, descarta manchas abaixo de 0,5 ha e gera
-   polígonos com área calculada em UTM.
-
-O limiar de Otsu só é aceito se cair em [0,65; 0,80] e com η ≥ 0,70; senão,
-vale 0,72. Com uma segunda data, o pixel precisa continuar vegetado e variar no
+Para cada imagem enviada, o método converte para reflectância, usa a SCL só
+como máscara de qualidade e calcula NDVI, NDWI e SAVI [2]. Depois exclui água
+(NDWI > 0), solo e vegetação rala (NDVI < 0,45), dossel fechado (limiar de
+Otsu [3] sobre o NDVI da vegetação) e uma faixa de 10 m em volta dos núcleos de
+mata. Por fim aplica abertura morfológica, descarta manchas abaixo de 0,5 ha e
+gera polígonos com área em UTM. O limiar de Otsu só é aceito se cair em
+[0,65; 0,80] e com η ≥ 0,70; senão, vale 0,72. Com uma segunda data, o pixel precisa continuar vegetado e variar no
 máximo 0,25 de NDVI, descontada a variação sazonal da cena. Os limiares ficam em
 `backend/config/classification.yaml` e são gravados em cada resultado.
 
@@ -35,36 +28,34 @@ literatura registra confusão com mata e usa conferência visual ou em campo
 
 ## Alternativas consideradas
 
-**A. Classificação supervisionada** (RF ou KNN por objetos), com rótulos do
-MapBiomas fora do recorte. É a abordagem da Embrapa Café: GEOBIA + KNN com as
-mesmas 4 bandas do Sentinel-2 [6]. Também foi usada com RF em Nova Resende [5].
-Descartada por três motivos:
+**A. Classificação supervisionada** (RF ou KNN por objetos). É a abordagem da
+Embrapa Café: GEOBIA + KNN com as mesmas 4 bandas do Sentinel-2, amostras de
+treino e validação com pontos de campo da Emater-MG [6]. Também foi usada com RF
+em Nova Resende [5]. Descartada porque aqui não há amostras de campo: os rótulos
+teriam de vir do MapBiomas (30 m, com erros próprios), e a avaliação contra o
+mesmo mapa seria circular. Fica para quando houver dados de campo.
 
-- os rótulos viriam de um mapa a 30 m, com erros próprios;
-- sem amostras independentes, a avaliação seria circular;
-- cada polígono fica mais difícil de explicar. Fica para quando houver dados de campo.
-
-**B. Usar o MapBiomas como resposta** (classe 46, Café) [7]. Não processa a
-imagem enviada. Além disso, é anual, tem 30 m e não cobre imagens de fora do
-Brasil. Virou **camada de referência**: cada análise mede a concordância com
-ele, sem chamá-la de acurácia.
+**B. Regra multitemporal sem rótulos: perenidade + textura.** Troca o teto de
+Otsu por rugosidade: na chuva, o café em linhas é mais rugoso que a mata (desvio
+local do NDVI 0,039 × 0,009). Medi com `scripts/sensibilidade_temporal.py`: IoU
+0,046 com o MapBiomas, contra 0,044 do app, mas a área triplica (445 ha) e 34%
+cai sobre floresta. Ganho dentro do ruído; não adotei. O MapBiomas (classe 46)
+[7] também não serve de resposta, porque não processa a imagem enviada: virou
+**camada de referência**.
 
 ## Origem e condições de uso
 
-- **Sentinel-2 L2A** via Earth Search (`sentinel-2-c1-l2a`): a cena do kit e uma
-  adicional de 17/02/2025, na mesma órbita. A licença Copernicus permite
-  modificar e redistribuir com a atribuição "Contains modified Copernicus
-  Sentinel data 2025" [8], que aparece no app. O recorte adicional sai de
-  `scripts/baixar_cena.py`, sem reamostragem; aplicado à cena do kit, ele
-  reproduz o kit pixel a pixel, com mesmo transform, CRS e data. As classes da
-  SCL seguem a tabela da ESA [9].
+- **Sentinel-2 L2A** via Earth Search: a cena do kit e uma de 17/02/2025, mesma
+  órbita. A licença Copernicus permite modificar e redistribuir com a atribuição
+  "Contains modified Copernicus Sentinel data 2025" [8], que aparece no app.
+  `scripts/baixar_cena.py` recorta sem reamostrar e, na cena do kit, reproduz o
+  kit pixel a pixel. Classes da SCL pela tabela da ESA [9].
 - **MapBiomas Coleção 11**: CC BY 4.0, com citação [7].
 - **Gemini** (nível gratuito, opcional): os termos permitem ao Google usar as
   entradas e mostrá-las a revisores humanos [10]. O modelo recebe o resumo
-  numérico, a pergunta e as últimas mensagens, sem nome nem e-mail, e a
-  interface pede para não escrever dados pessoais. Uma guarda no backend rejeita
-  respostas com percentuais, valores com unidade ou números acima de 12 que não
-  estejam no resultado.
+  numérico, a pergunta e as últimas mensagens, sem nome nem e-mail. Uma guarda
+  no backend rejeita respostas com números fora do resultado ou que afirmem
+  acerto.
 - **Mapa base**: OpenFreeMap, com dados OpenStreetMap (ODbL); a atribuição com
   link aparece no mapa [11].
 
@@ -77,27 +68,33 @@ ele, sem chamá-la de acurácia.
    (IoU 0,05), e 76% das de agosto viram dossel fechado na chuva. Com uma data
    só, o resultado depende da estação.
 3. **Referência independente.** Contra o café do MapBiomas 2025, o IoU é 0,038
-   (agosto) e 0,044 (agosto + fevereiro). Pelo MapBiomas, nossas candidatas são
-   sobretudo lavoura temporária (36,6%) e pastagem (34,4%), e 36,5% do café do
-   MapBiomas cai em "dossel fechado". Essa concordância baixa aparece no app e
-   no chat.
+   (agosto) e 0,044 (agosto + fevereiro); a mesma área ao acaso daria 0,013. Há
+   sinal, mas fraco. Pelo MapBiomas, as candidatas são sobretudo lavoura
+   temporária (36,6%) e pastagem (34,4%), e 36,5% do café cai em "dossel
+   fechado". O app e o chat mostram essa concordância.
 
 ## Erro encontrado
 
-A regra temporal original rejeitava 65% das candidatas de agosto quando a
-segunda data era fevereiro. Na chuva, a vegetação da cena inteira sobe +0,15
-de NDVI em mediana, e as candidatas, +0,29. A regra confundia estação com
-mudança de uso. A correção desconta a mediana do Δ da vegetação da cena.
-Comparei cinco variantes; com a escolhida, a regra mantém 83% das candidatas.
-Há um teste de regressão.
+A regra temporal original (|Δ NDVI| ≤ 0,25) rejeitava 65% das candidatas de
+agosto contra fevereiro. Tratei como erro: na chuva a vegetação sobe +0,15 em
+mediana, e passei a descontar essa mediana. Escolhi a variante porque mantinha
+83% das candidatas. **O critério era circular**: medi quanto a regra mantinha,
+não se ela acertava. Contra o MapBiomas, a original dá 25,6 ha e precisão 0,096;
+a corrigida, 109 ha e 0,059; IoU 0,037 × 0,044, dentro do ruído. O café do
+MapBiomas varia como a vegetação da cena e as candidatas sobem +0,14 a mais,
+então a rejeição podia estar certa. Ancorar na mata (Δ no p5–p95 da mata) deixa
+1,9 ha e IoU 0. Mantive a regra do app, que tem mais revocação (0,15 × 0,06),
+porque o produto é triagem para conferência.
 
 ## Limitações
 
 - Índice de vegetação sozinho não comprova café. "Vigor intermediário" também
   pega lavoura temporária, pasto bem formado e borda de mata.
-- Os limiares foram ajustados numa cena seca do Sul de MG. Imagens de outubro
-  a março recebem aviso.
-- Sem SWIR nem red-edge, e a SCL tem 20 m.
+- Limiares ajustados numa cena seca do Sul de MG (outubro a março recebem
+  aviso); sem SWIR nem red-edge; SCL a 20 m.
+- Agosto é colheita e poda no Sul de MG: talhão colhido, recepado ou esqueletado
+  perde vigor e pode cair em "solo e vegetação rala". Lavoura de inverno irrigada
+  (pivô) tem vigor intermediário em agosto e entra como candidata.
 - Não há acurácia: os números do app são áreas e concordâncias.
 
 ## Fontes (conferir cada link antes de entregar)
