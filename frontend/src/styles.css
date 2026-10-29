@@ -1091,7 +1091,7 @@ details.block p,
 .chat__figure-placeholder {
   display: block;
   width: 100%;
-  max-width: 22rem;
+  max-width: 16rem;
   aspect-ratio: 1;
   object-fit: contain;
   border: 1px solid var(--ink-2);

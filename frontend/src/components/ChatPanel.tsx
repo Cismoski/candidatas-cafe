@@ -63,7 +63,8 @@ export function ChatPanel({ analysisId, polygonIds, onFocusPolygon }: Props) {
   };
 
   if (chat.isPending) return <p className="note" role="status">Carregando a conversa…</p>;
-  if (chat.error || !chat.data) return <ErrorNote error={chat.error} onRetry={() => void chat.refetch()} />;
+  // Com a conversa já carregada, um erro de releitura (ex.: após um 429) não esconde o histórico
+  if (!chat.data) return <ErrorNote error={chat.error} onRetry={() => void chat.refetch()} />;
 
   const messages = chat.data.messages;
   const onlyIntro = messages.length <= 1;
@@ -71,8 +72,8 @@ export function ChatPanel({ analysisId, polygonIds, onFocusPolygon }: Props) {
 
   return (
     <section className="chat" aria-label="Assistente da análise">
+      <ClassificationFigure analysisId={analysisId} />
       <div className="chat__log" role="log" aria-live="polite" aria-relevant="additions">
-        <ClassificationFigure analysisId={analysisId} />
         {messages.map((m) => (
           <Message key={m.id} m={m} polygonIds={polygonIds} onFocusPolygon={onFocusPolygon} />
         ))}

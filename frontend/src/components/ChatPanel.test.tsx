@@ -125,6 +125,19 @@ it("limite por minuto (429) não zera a cota do dia", async () => {
   expect(screen.queryByText(/0 perguntas restantes hoje/)).toBeNull();
 });
 
+it("se a releitura após um 429 falhar, o histórico continua na tela", async () => {
+  let gets = 0;
+  mockFetch({
+    [`GET ${PATH}`]: () => (gets++ === 0 ? json({ messages: [INTRO], remaining_today: 12 }) : json({ detail: "x" }, 429)),
+    [`POST ${PATH}`]: () => json({ detail: "Muitas requisições. Aguarde e tente de novo." }, 429),
+  });
+  const { user } = show();
+  await user.click(await screen.findByRole("button", { name: "Qual é o maior polígono?" }));
+  await waitFor(() => expect(gets).toBe(2));
+  expect(screen.getByText(/90 polígonos candidatos/)).toBeInTheDocument();
+  expect(screen.getByLabelText("Pergunte sobre esta análise")).toBeInTheDocument();
+});
+
 it("contador de cota aparece antes da primeira pergunta; com cota zerada não envia", async () => {
   mockFetch({ [`GET ${PATH}`]: () => json({ messages: [INTRO], remaining_today: 0 }) });
   const { user } = show();
@@ -232,7 +245,8 @@ it("mostra a imagem da classificação no topo da conversa e libera a URL ao sai
   expect(await screen.findByText("Carregando a imagem da classificação…")).toBeInTheDocument();
   const img = await screen.findByRole("img", { name: /polígonos candidatos a café/ });
   expect(img).toHaveAttribute("src", "blob:classificacao");
-  expect(within(screen.getByRole("log")).getByRole("img")).toBe(img);
+  // fora da região aria-live, para o leitor de tela não anunciar o carregamento
+  expect(within(screen.getByRole("log")).queryByRole("img")).toBeNull();
   unmount();
   expect(revoke).toHaveBeenCalledWith("blob:classificacao");
 });
