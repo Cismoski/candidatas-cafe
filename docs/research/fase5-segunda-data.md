@@ -89,7 +89,7 @@ Comparando as análises de uma data só:
 
 Na chuva o café passa do limiar de dossel fechado (Otsu em fev/2025: 0,77;
 η 0,744), embora fique abaixo da mata: mediana do NDVI de fevereiro 0,79 no café
-do MapBiomas e 0,91 na formação florestal.
+do MapBiomas e 0,91 na formação florestal (`scripts/sensibilidade_temporal.py`).
 A hipótese "café = vigor intermediário" só vale na seca. A análise agora avisa
 quando a imagem principal é de outubro a março.
 

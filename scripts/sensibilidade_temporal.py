@@ -160,6 +160,22 @@ def main() -> None:
     )
     print(f"  ↳ fração sobre formação florestal do MapBiomas: {on_forest:.2f}")
 
+    # Assinaturas citadas na nota (núcleo de cada classe, erodido 1 px)
+    print("\nAssinaturas (medianas): NDVI fev, Δ − mediana da vegetação, rugosidade fev")
+    groups = {"café MapBiomas": mb == COFFEE, "formação florestal MapBiomas": mb == 3}
+    for name, mask in groups.items():
+        core = ndimage.binary_erosion(mask & compared, EIGHT, 1) & np.isfinite(delta)
+        print(
+            f"  {name:30s} {np.nanmedian(other_ndvi[core]):.2f}"
+            f"  {np.nanmedian(delta[core]) - veg_shift:+.2f}  {np.nanmedian(rough[core]):.3f}"
+        )
+    single_cand = (single.classes == LandClass.CANDIDATE) & np.isfinite(delta)
+    print(
+        f"  {'candidatas de agosto':30s} {np.nanmedian(other_ndvi[single_cand]):.2f}"
+        f"  {np.nanmedian(delta[single_cand]) - veg_shift:+.2f}"
+        f"  {np.nanmedian(rough[single_cand]):.3f}"
+    )
+
 
 if __name__ == "__main__":
     main()

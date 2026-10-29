@@ -25,6 +25,10 @@ jobs:
           URL: ${{ vars.KEEPALIVE_URL }}
           UNTIL: ${{ vars.KEEPALIVE_UNTIL }}
         run: |
+          if [[ ! "$UNTIL" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+            echo "KEEPALIVE_UNTIL precisa ser AAAA-MM-DD; recebido: $UNTIL" >&2
+            exit 1
+          fi
           if [[ "$(date -u +%F)" > "$UNTIL" ]]; then
             echo "Janela encerrada em $UNTIL; nada a fazer."
             exit 0

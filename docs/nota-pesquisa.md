@@ -67,9 +67,8 @@ cai sobre floresta. Ganho dentro do ruído; não adotei. O MapBiomas (classe 46)
 2. **Entre datas.** As candidatas de agosto e as de fevereiro concordam pouco
    (IoU 0,05), e 76% das de agosto viram dossel fechado na chuva. Com uma data
    só, o resultado depende da estação.
-3. **Referência independente.** Contra o café do MapBiomas 2025, o IoU é 0,038
-   (agosto) e 0,044 (agosto + fevereiro); a mesma área ao acaso daria 0,013. Há
-   sinal, mas fraco. Pelo MapBiomas, as candidatas são sobretudo lavoura
+3. **Referência independente.** IoU com o café do MapBiomas 2025: 0,038
+   (agosto) e 0,044 (+ fevereiro); ao acaso, 0,013 e 0,012. Sinal fraco. Pelo MapBiomas, as candidatas são sobretudo lavoura
    temporária (36,6%) e pastagem (34,4%), e 36,5% do café cai em "dossel
    fechado". O app e o chat mostram essa concordância.
 
