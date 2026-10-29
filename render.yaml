@@ -1,0 +1,27 @@
+# Blueprint do Render: backend (Docker) no plano gratuito.
+# Valores secretos ficam com sync: false (preenchidos no painel, nunca no repo).
+# Plano free: 512 MB, dorme após 15 min sem tráfego, disco efêmero (docs/deploy.md).
+services:
+  - type: web
+    name: globalwatch-api
+    runtime: docker
+    plan: free
+    region: virginia # a mais próxima do Brasil entre as do Render
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true # 256 bits aleatórios, gerados pelo Render
+      - key: CORS_ORIGINS
+        sync: false # ex.: https://globalwatch-cafe.pages.dev
+      - key: GEMINI_API_KEY
+        sync: false # vazio = só respostas automáticas
+      - key: TRUSTED_PROXY_HOPS
+        value: "1"
+      - key: DATA_DIR
+        value: /data
