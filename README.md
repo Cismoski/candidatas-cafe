@@ -13,7 +13,6 @@ processamento.
 - **Nota de pesquisa:** [`docs/nota-pesquisa.md`](docs/nota-pesquisa.md)
 - **Uso de IA:** [`docs/uso-de-ia.md`](docs/uso-de-ia.md)
 - **Deploy, cotas, sono e retenção:** [`docs/deploy.md`](docs/deploy.md)
-- **Roteiro do vídeo:** [`docs/roteiro-video.md`](docs/roteiro-video.md)
 
 Contains modified Copernicus Sentinel data 2025 ([termos](https://sentinels.copernicus.eu/documents/247904/690755/Sentinel_Data_Legal_Notice)).
 Referência de café: MapBiomas Coleção 11, CC BY 4.0 (Souza Jr. et al., 2020, doi:10.3390/rs12172735).
