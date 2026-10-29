@@ -7,7 +7,8 @@ aqui garantimos o que fazemos com o resultado e com as falhas dele.
 import pytest
 
 from app import auth
-from app.auth import InvalidGoogleToken, verify_google_id_token
+from app.auth import verify_google_id_token
+from app.ports import InvalidIdentity
 
 GOOD = {
     "iss": "https://accounts.google.com",
@@ -56,11 +57,11 @@ def test_both_google_issuers_accepted(monkeypatch, iss):
 )
 def test_rejected_claims(monkeypatch, claims, msg):
     _patch(monkeypatch, claims)
-    with pytest.raises(InvalidGoogleToken, match=msg):
+    with pytest.raises(InvalidIdentity, match=msg):
         verify_google_id_token("t", "c")
 
 
 def test_library_failure_becomes_invalid_token(monkeypatch):
     _patch(monkeypatch, ValueError("Token expired"))
-    with pytest.raises(InvalidGoogleToken):
+    with pytest.raises(InvalidIdentity):
         verify_google_id_token("t", "c")

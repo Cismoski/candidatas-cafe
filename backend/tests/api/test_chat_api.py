@@ -4,8 +4,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import chat
-from app.llm import LLMError
 from app.main import create_app
+from app.ports import LLMError
 from tests.api.conftest import fake_verifier, login, make_settings, upload
 
 
@@ -81,7 +81,7 @@ def test_other_user_gets_404(env):
 
 def test_not_done_is_409(env):
     c, alice, aid, a = env
-    c.app.state.db.set_status(aid, "processing")
+    c.app.state.services.db.set_status(aid, "processing")
     assert c.get(f"/analyses/{aid}/chat", headers=alice).status_code == 409
     assert ask(c, alice, aid).status_code == 409
 
@@ -138,7 +138,7 @@ def test_prompt_injection_with_invented_numbers_is_discarded(env, model):
 def test_without_key_everything_is_automatic(tmp_path, scene_bytes):
     s = make_settings(tmp_path)
     with TestClient(create_app(s, google_verifier=fake_verifier)) as c:  # sem chave no ambiente
-        assert c.app.state.chat_model is None
+        assert c.app.state.services.chat_model is None
         h = login(c, "google-token-alice")
         aid = upload(c, h, scene_bytes).json()["id"]
         m = ask(c, h, aid).json()["messages"][1]
@@ -149,22 +149,24 @@ def test_chat_deleted_with_analysis(env):
     c, alice, aid, a = env
     ask(c, alice, aid)
     assert c.delete(f"/analyses/{aid}", headers=alice).status_code == 204
-    with c.app.state.db.connect() as conn:
+    with c.app.state.services.db.connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM chat_messages").fetchone()[0] == 0
 
 
 def test_analysis_deleted_while_model_answers(env, model):
     c, alice, aid, a = env
-    with c.app.state.db.connect() as conn:
+    with c.app.state.services.db.connect() as conn:
         owner = conn.execute("SELECT owner_id FROM analyses WHERE id = ?", (aid,)).fetchone()[0]
 
     def delete_then_answer(system, history, message):
-        c.app.state.db.delete_analysis(aid, owner)  # DELETE em outra aba, durante a resposta
+        c.app.state.services.db.delete_analysis(
+            aid, owner
+        )  # DELETE em outra aba, durante a resposta
         return "ok"
 
     model.generate = delete_then_answer
     assert ask(c, alice, aid).status_code == 404
-    with c.app.state.db.connect() as conn:
+    with c.app.state.services.db.connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM chat_messages").fetchone()[0] == 0
         # a pergunta não respondida não gasta cota
         assert (

@@ -10,7 +10,7 @@ from hypothesis import strategies as st
 from app import chat
 from app.breaker import CircuitBreaker, State
 from app.chat import guard
-from app.llm import LLMError, LLMSkipped
+from app.ports import LLMError, LLMSkipped
 
 
 def summary(**results) -> dict:

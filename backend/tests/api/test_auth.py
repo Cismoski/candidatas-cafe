@@ -165,7 +165,7 @@ def test_unexpected_error_is_json_500_with_cors(client, alice, monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("detalhe interno /srv/segredo")
 
-    monkeypatch.setattr(client.app.state.db, "list_analyses", boom)
+    monkeypatch.setattr(client.app.state.services.db, "list_analyses", boom)
     r = client.get("/analyses", headers={**alice, "Origin": "https://app.example.com"})
     assert r.status_code == 500
     assert r.json() == {"detail": "Erro inesperado na API. Tente de novo."}

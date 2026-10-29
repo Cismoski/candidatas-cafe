@@ -13,7 +13,6 @@ eu usaria cookie httpOnly + SameSite no mesmo site (ver README).
 """
 
 import uuid
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -29,24 +28,11 @@ from starlette.concurrency import run_in_threadpool
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from .db import Database, now
+from .ports import Identity, InvalidIdentity
 from .settings import Settings
 
 GOOGLE_ISSUERS = {"accounts.google.com", "https://accounts.google.com"}
 ALGORITHM = "HS256"
-
-
-@dataclass(frozen=True)
-class GoogleIdentity:
-    sub: str
-    email: str
-    name: str | None
-
-
-class InvalidGoogleToken(Exception):
-    pass
-
-
-GoogleVerifier = Callable[[str, str], GoogleIdentity]
 
 
 class _GoogleTransport(google_requests.Request):
@@ -62,19 +48,19 @@ _transport = _GoogleTransport(session=CacheControl(requests.Session()))
 CLOCK_SKEW_S = 10  # relógios do cliente/Google/servidor podem divergir alguns segundos
 
 
-def verify_google_id_token(token: str, client_id: str) -> GoogleIdentity:
+def verify_google_id_token(token: str, client_id: str) -> Identity:
     """Valida o ID token com as chaves públicas do Google (cacheadas pela lib)."""
     try:
         claims = id_token.verify_oauth2_token(
             token, _transport, audience=client_id, clock_skew_in_seconds=CLOCK_SKEW_S
         )
     except ValueError as e:  # assinatura, audiência ou expiração inválidas
-        raise InvalidGoogleToken(str(e)) from e
+        raise InvalidIdentity(str(e)) from e
     if claims.get("iss") not in GOOGLE_ISSUERS:
-        raise InvalidGoogleToken("emissor inválido")
+        raise InvalidIdentity("emissor inválido")
     if not claims.get("email_verified"):
-        raise InvalidGoogleToken("e-mail não verificado")
-    return GoogleIdentity(sub=claims["sub"], email=claims["email"], name=claims.get("name"))
+        raise InvalidIdentity("e-mail não verificado")
+    return Identity(sub=claims["sub"], email=claims["email"], name=claims.get("name"))
 
 
 @dataclass(frozen=True)
@@ -137,7 +123,9 @@ def current_user(
 ) -> CurrentUser:
     if creds is None or creds.scheme.lower() != "bearer":
         raise UNAUTHORIZED
-    user = authenticate(creds.credentials, request.app.state.settings, request.app.state.db)
+    user = authenticate(
+        creds.credentials, request.app.state.services.settings, request.app.state.services.db
+    )
     if user is None:
         raise UNAUTHORIZED
     request.state.user_id = user.id  # usado pela chave do rate limit
@@ -159,11 +147,11 @@ class BearerPrecheckMiddleware:
         if scope["type"] == "http" and (scope["method"], scope["path"]) in self.routes:
             auth = dict(scope.get("headers", [])).get(b"authorization", b"").decode("latin-1")
             scheme, _, token = auth.partition(" ")
-            state = scope["app"].state
+            services = scope["app"].state.services
             ok = (
                 scheme.lower() == "bearer"
                 and token
-                and await run_in_threadpool(authenticate, token, state.settings, state.db)
+                and await run_in_threadpool(authenticate, token, services.settings, services.db)
             )
             if not ok:
                 response = JSONResponse(

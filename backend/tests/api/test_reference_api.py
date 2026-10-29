@@ -13,7 +13,7 @@ def test_reference_url_reaches_the_pipeline_and_overlay_is_downloadable(tmp_path
     s = make_settings(tmp_path)
     with TestClient(create_app(s, google_verifier=fake_verifier)) as c:
         # a Settings só aceita https; aqui o arquivo local entra direto no JobRunner
-        c.app.state.jobs.reference_url = str(tmp_path / "mb_{year}.tif")
+        c.app.state.services.jobs.reference_url = str(tmp_path / "mb_{year}.tif")
         alice = login(c, "google-token-alice")
         aid = upload(c, alice, scene_bytes).json()["id"]
         a = c.get(f"/analyses/{aid}", headers=alice).json()

@@ -101,12 +101,12 @@ Configurar em Settings > Secrets and variables > Actions > Variables:
 | Limite | Valor | Onde |
 |---|---|---|
 | Upload | 40 MB por envio, até 1500 × 1500 px, pixel de 5 a 60 m | `MAX_UPLOAD_MB`, `MAX_RASTER_DIM`, `uploads.py` |
-| Análises | 10 por usuário/dia; 3/min por usuário; 30/dia por IP | `UPLOADS_PER_DAY`, `main.py` |
+| Análises | 10 por usuário/dia; 3/min por usuário; 30/dia por IP | `UPLOADS_PER_DAY`, `api/routes_analyses.py` |
 | Fila | 4 análises esperando (todas as contas); acima disso, 503 | `MAX_QUEUED_JOBS` |
 | Tempo por análise | 300 s; estourou, a análise falha (a cota não volta: o processamento foi gasto). A cota só é devolvida se o envio falhar antes de entrar na fila | `JOB_TIMEOUT_SECONDS` |
 | Chat | 30 mensagens por usuário/dia; 10/min; 4 chamadas simultâneas ao Gemini | `CHAT_*` |
-| Login | 10/min por IP | `main.py` |
-| Geral | 120 req/min por IP | `main.py` |
+| Login | 10/min por IP | `api/routes_auth.py` |
+| Geral | 120 req/min por IP | `main.py` (limiter) |
 | Sessão | JWT de 60 min | `JWT_TTL_MINUTES` |
 | Retenção | análises 24 h; contas sem uso 30 dias (varredura a cada 15 min) | `RETENTION_*`, `USER_RETENTION_DAYS` |
 

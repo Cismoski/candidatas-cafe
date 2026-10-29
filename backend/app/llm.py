@@ -9,8 +9,8 @@ Services"); por isso o contexto é só numérico. Ver README > Assistente.
 
 import logging
 import threading
-from dataclasses import dataclass
-from typing import Protocol
+
+from .ports import LLMError, LLMSkipped, Turn
 
 log = logging.getLogger("cafe.llm")
 
@@ -23,26 +23,6 @@ _HINTS = {
     404: " (modelo indisponível para esta chave; conferir GEMINI_MODEL)",
     429: " (cota do Gemini esgotada)",
 }
-
-
-class LLMError(Exception):
-    """Falha do serviço (rede, timeout, 429, 5xx, chave inválida): conta no circuit breaker."""
-
-
-class LLMSkipped(LLMError):
-    """Sem veredito sobre a saúde do serviço: todas as vagas ocupadas, ou resposta
-    vazia/bloqueada/cortada. NÃO conta no breaker: senão três perguntas que
-    disparam o filtro de segurança desligariam o Gemini para todos."""
-
-
-@dataclass(frozen=True)
-class Turn:
-    role: str  # "user" | "assistant"
-    text: str
-
-
-class ChatModel(Protocol):
-    def generate(self, system: str, history: list[Turn], message: str) -> str: ...
 
 
 class GeminiChat:

@@ -49,7 +49,11 @@ Render (Docker, free) · Cloudflare Pages (estático, CSP em _headers)
 | Pasta | Conteúdo |
 |---|---|
 | `backend/app/processing/` | Pipeline: leitura e validação, radiometria, índices, classificação, vetorização, renderização, referência MapBiomas |
-| `backend/app/` | API: auth, uploads, jobs, chat, rate limit, armazenamento por usuário |
+| `backend/app/ports.py` | Contratos (`Protocol`) do que a API usa de fora: identidade, modelo de chat, repositório, arquivos, fila |
+| `backend/app/main.py` | Raiz de composição: liga cada port ao adaptador (`db.py` SQLite, `storage.py` disco, `jobs.py` subprocesso, `auth.py` Google, `llm.py` Gemini) e monta os middlewares |
+| `backend/app/api/` | Rotas por assunto (sessão, análises, chat), schemas e middlewares; só falam com os ports |
+| `backend/app/values.py` | Value objects validados na criação: `AnalysisId`, `IdempotencyKey`, `AnalysisTitle`, `AcquisitionDate` |
+| `backend/app/chat/` | Assistente: contexto, guarda numérica (com os value objects `Quantity` e `Allowed`), respostas automáticas, orquestração |
 | `backend/config/classification.yaml` | Todos os limiares (nada fixo no código) |
 | `frontend/src/` | Telas, cliente da API, mapa, chat |
 | `scripts/` | `baixar_cena.py` (recorte de outra data nos COGs públicos), `smoke.py` (verificação do deploy) |
@@ -61,6 +65,16 @@ Por que assim:
 - **PNG reprojetado para o mapa:** o servidor gera sobreposições em EPSG:3857 com
   os cantos em 4326 (`rasterio.warp`), e o MapLibre só posiciona. Não precisa
   de servidor de tiles nem de COG público com URL assinada.
+- **Ports and adapters, na medida:** as rotas recebem um `Services` com os
+  ports, e os testes trocam o Google e o Gemini por falsos passando outro objeto
+  para `create_app`. O processamento ficou de fora de propósito: são funções
+  puras sobre arrays, já testáveis sem port. `tests/test_ports.py` confere que
+  cada adaptador tem a assinatura do seu port.
+- **Value objects onde havia validação espalhada:** id malformado, chave de
+  idempotência, título e data inválida eram checados nas rotas ou estouravam ao
+  formatar (o 500 da data inexistente). Agora são validados uma vez, na criação,
+  e testados sem subir a API (`tests/test_values.py`). Índices e bandas continuam
+  arrays numpy: encapsulá-los só atrapalharia a vetorização.
 - **SQLite:** basta para uma instância só. Em produção, Postgres + S3/R2 + Redis
   (ver [`docs/deploy.md`](docs/deploy.md)).
 
@@ -149,7 +163,7 @@ Medido em 28/10/2026, localmente. A CI roda lint, pytest com cobertura, os teste
 
 | Conjunto | Resultado | Comando |
 |---|---|---|
-| Backend (pytest) | **485 passaram**; cobertura 97% (linhas + ramos), sendo 93,9% dos ramos; `classify.py`, `pipeline.py` e `reference.py` com 100% | `cd backend && uv run pytest --cov` |
+| Backend (pytest) | **549 passaram**; cobertura 97% (linhas + ramos), sendo 93,9% dos ramos; `classify.py`, `pipeline.py` e `reference.py` com 100% | `cd backend && uv run pytest --cov` |
 | Frontend (vitest) | **195 passaram**, cobertura de linhas 92,4% e de ramos 86,7% | `cd frontend && bun run test:cov` |
 | Mutação (mutmut, processamento) | **85% dos mutantes mortos** (1.377 de 1.618): `vectorize` 96%, `classify` 92%, `radiometry` 92%, `reading` 85%, `indices` 84%, `pipeline` 81%. Numa amostra dos sobreviventes do `pipeline`, a maioria muda textos e formatação do resumo; o contrato do `summary.json` (chaves e valores derivados) foi fixado num teste depois que a primeira rodada deu 69% nesse módulo | `cd backend && uv run mutmut run && uv run mutmut results` |
 | Imagem Docker | sobe sem root e responde ao `/health` (CI) | `.github/workflows/ci.yml` |

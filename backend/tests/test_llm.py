@@ -7,7 +7,8 @@ import httpx
 import pytest
 from google.genai import errors, types
 
-from app.llm import GeminiChat, LLMError, LLMSkipped, Turn
+from app.llm import GeminiChat
+from app.ports import LLMError, LLMSkipped, Turn
 
 
 def resp(text="ok", finish=types.FinishReason.STOP, candidates=True):

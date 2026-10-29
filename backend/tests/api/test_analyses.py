@@ -234,8 +234,8 @@ def test_job_discards_result_if_analysis_deleted_meanwhile(
         result = real(args, tmp)
         owner, aid = tmp.parent.parent.name, tmp.parent.name
         # usuário apagou DEPOIS do processamento e ANTES do rename
-        app.state.db.delete_analysis(aid, owner)
-        app.state.storage.remove_analysis(owner, aid)
+        app.state.services.db.delete_analysis(aid, owner)
+        app.state.services.storage.remove_analysis(owner, aid)
         return result
 
     monkeypatch.setattr(jobs, "run_inline", run_then_delete)
@@ -278,7 +278,7 @@ def test_quota_is_atomic_under_concurrency(tmp_path):
 def test_retention_sweep_deletes_old_analyses_and_orphans(client, alice, scene_bytes, settings):
     a = _done(client, alice, scene_bytes)
     b = _done(client, alice, scene_bytes)
-    db, storage = client.app.state.db, client.app.state.storage
+    db, storage = client.app.state.services.db, client.app.state.services.storage
     old = iso(now() - timedelta(hours=settings.retention_hours + 1))
     with db.connect() as c:
         c.execute("UPDATE analyses SET created_at = ? WHERE id = ?", (old, a["id"]))
@@ -416,7 +416,7 @@ def test_queue_full_returns_503(tmp_path, scene_bytes):
     s = make_settings(tmp_path, max_queued_jobs=1)
     with TestClient(create_app(s, google_verifier=fake_verifier)) as c:
         h = login(c, "google-token-alice")
-        c.app.state.db.create_analysis(  # um job "preso" na fila
+        c.app.state.services.db.create_analysis(  # um job "preso" na fila
             "33333333-3333-3333-3333-333333333333",
             c.get("/me", headers=h).json()["id"],
             "x",
@@ -432,7 +432,7 @@ def test_idempotency_key_returns_same_analysis(client, alice, scene_bytes):
     h = {**alice, "Idempotency-Key": "upload-0001-abc"}
     files = {"primary": ("a.tif", scene_bytes, "image/tiff")}
     first = client.post("/analyses", headers=h, files=files)
-    client.app.state.jobs.drain(60)
+    client.app.state.services.jobs.drain(60)
     second = client.post("/analyses", headers=h, files=files)
     assert first.status_code == 202 and second.status_code == 200
     assert first.json()["id"] == second.json()["id"]
@@ -446,7 +446,7 @@ def test_idempotency_key_is_scoped_per_user(client, alice, bob, scene_bytes):
     a = client.post("/analyses", headers={**alice, "Idempotency-Key": "same-key-123"}, files=files)
     b = client.post("/analyses", headers={**bob, "Idempotency-Key": "same-key-123"}, files=files)
     assert a.status_code == b.status_code == 202 and a.json()["id"] != b.json()["id"]
-    client.app.state.jobs.drain(60)
+    client.app.state.services.jobs.drain(60)
 
 
 def test_rejected_uploads_have_their_own_quota(tmp_path):
@@ -460,7 +460,7 @@ def test_rejected_uploads_have_their_own_quota(tmp_path):
         h = login(c, "google-token-alice")
         uid = c.get("/me", headers=h).json()["id"]
         for _ in range(3):  # 3 * uploads_per_day rejeições permitidas
-            c.app.state.db.consume_quota(uid, "upload_rejected", 3, timedelta(days=1))
+            c.app.state.services.db.consume_quota(uid, "upload_rejected", 3, timedelta(days=1))
         r = upload(c, h, b"nao sou tiff")
         assert r.status_code == 429 and "inválidos" in r.json()["detail"]
 
@@ -471,7 +471,7 @@ def test_validation_errors_do_not_echo_input(client):
 
 
 def test_orphan_sweep_spares_recent_upload_dirs(client, settings):
-    storage = client.app.state.storage
+    storage = client.app.state.services.storage
     d = (
         storage.root
         / "44444444-4444-4444-4444-444444444444"

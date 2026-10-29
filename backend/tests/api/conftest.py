@@ -3,8 +3,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app.auth import GoogleIdentity, InvalidGoogleToken
 from app.main import create_app
+from app.ports import Identity, InvalidIdentity
 from app.settings import Settings
 from tests.conftest import COFFEE, make_scene, paint, write_stack
 
@@ -13,17 +13,15 @@ CLIENT_ID = "test-client.apps.googleusercontent.com"
 # "Tokens" do Google falsos: o verificador real (assinatura RSA do Google) é
 # substituído; o que se testa aqui é o que a API faz com o resultado.
 USERS = {
-    "google-token-alice": GoogleIdentity(
-        sub="google-sub-alice", email="alice@example.com", name="Alice"
-    ),
-    "google-token-bob": GoogleIdentity(sub="google-sub-bob", email="bob@example.com", name="Bob"),
+    "google-token-alice": Identity(sub="google-sub-alice", email="alice@example.com", name="Alice"),
+    "google-token-bob": Identity(sub="google-sub-bob", email="bob@example.com", name="Bob"),
 }
 
 
-def fake_verifier(token: str, client_id: str) -> GoogleIdentity:
+def fake_verifier(token: str, client_id: str) -> Identity:
     assert client_id == CLIENT_ID
     if token not in USERS:
-        raise InvalidGoogleToken("token inválido")
+        raise InvalidIdentity("token inválido")
     return USERS[token]
 
 
@@ -79,5 +77,5 @@ def upload(client, headers, data: bytes, filename="cena.tif", **extra_files):
     files = {"primary": (filename, data, "image/tiff")}
     files.update(extra_files)
     r = client.post("/analyses", headers=headers, files=files)
-    client.app.state.jobs.drain(timeout=60)
+    client.app.state.services.jobs.drain(timeout=60)
     return r

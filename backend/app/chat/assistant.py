@@ -24,7 +24,7 @@ def respond(question: str, summary: dict, history: list, model, breaker) -> dict
     Qualquer saída depois de `allow()` registra um veredito ou libera a sonda
     (finally): sonda presa deixaria o Gemini desligado até reiniciar o processo.
     """
-    from ..llm import LLMError, LLMSkipped, Turn
+    from ..ports import LLMError, LLMSkipped, Turn
 
     def automatic(notice: str) -> dict:
         return {
