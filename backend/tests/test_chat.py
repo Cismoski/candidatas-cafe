@@ -9,6 +9,7 @@ from hypothesis import strategies as st
 
 from app import chat
 from app.breaker import CircuitBreaker, State
+from app.chat import guard
 from app.llm import LLMError, LLMSkipped
 
 
@@ -89,7 +90,7 @@ def summary(**results) -> dict:
 
 S = summary()
 CTX = chat.build_context(S)
-ALLOWED = chat.allowed_numbers(CTX)
+ALLOWED = guard.allowed_numbers(CTX)
 
 
 # --- checagem de números ---------------------------------------------------------------
@@ -105,7 +106,7 @@ ALLOWED = chat.allowed_numbers(CTX)
     ],
 )
 def test_parse_numbers(text, readings):
-    assert [v for n in chat.parse_numbers(text) for v in n.readings] == readings
+    assert [v for n in guard.parse_numbers(text) for v in n.readings] == readings
 
 
 @pytest.mark.parametrize(
@@ -126,7 +127,7 @@ def test_parse_numbers(text, readings):
     ],
 )
 def test_supported_numbers_pass(text):
-    assert chat.unsupported_numbers(text, ALLOWED) == []
+    assert guard.unsupported_numbers(text, ALLOWED) == []
 
 
 @pytest.mark.parametrize(
@@ -154,7 +155,7 @@ def test_supported_numbers_pass(text):
     ],
 )
 def test_invented_numbers_rejected(text, bad):
-    assert chat.unsupported_numbers(text, ALLOWED) == bad
+    assert guard.unsupported_numbers(text, ALLOWED) == bad
 
 
 def _ptbr(v: float, nd: int) -> str:
@@ -164,14 +165,14 @@ def _ptbr(v: float, nd: int) -> str:
 @given(st.sampled_from(sorted(ALLOWED.plain)), st.integers(0, 3), st.booleans())
 def test_property_any_rounding_of_context_value_passes(v, nd, en):
     text = f"{v:.{nd}f}" if en else _ptbr(v, nd)
-    assert chat.unsupported_numbers(f"valor {text} aqui", ALLOWED) == []
+    assert guard.unsupported_numbers(f"valor {text} aqui", ALLOWED) == []
 
 
 @given(
     st.floats(13, 1e6, allow_nan=False).filter(lambda x: all(abs(x - a) > 1 for a in ALLOWED.plain))
 )
 def test_property_number_far_from_context_is_rejected(x):
-    assert chat.unsupported_numbers(f"são {_ptbr(x, 2)} ha", ALLOWED) != []
+    assert guard.unsupported_numbers(f"são {_ptbr(x, 2)} ha", ALLOWED) != []
 
 
 @pytest.mark.parametrize(
@@ -185,7 +186,7 @@ def test_property_number_far_from_context_is_rejected(x):
     ],
 )
 def test_accuracy_claims_detected(text):
-    assert chat.accuracy_claim(text)
+    assert guard.accuracy_claim(text)
 
 
 @pytest.mark.parametrize(
@@ -196,7 +197,7 @@ def test_accuracy_claims_detected(text):
     ],
 )
 def test_no_accuracy_claim(text):
-    assert not chat.accuracy_claim(text)
+    assert not guard.accuracy_claim(text)
 
 
 # --- contexto ----------------------------------------------------------------------------
@@ -239,8 +240,8 @@ def test_context_includes_polygons_from_history_and_global_highlights():
 def test_scene_id_digits_are_not_allowed_numbers():
     s = summary()
     s["inputs"]["primary"]["source_item"] = "X-95-100"
-    allowed = chat.allowed_numbers(chat.build_context(s))
-    assert chat.unsupported_numbers("95 ha", allowed) == ["95"]
+    allowed = guard.allowed_numbers(chat.build_context(s))
+    assert guard.unsupported_numbers("95 ha", allowed) == ["95"]
 
 
 @pytest.mark.parametrize(
@@ -307,7 +308,9 @@ def test_automatic_answers_only_use_context_numbers():
         "acurácia",
     ]:
         a = chat.automatic_answer(q, S)
-        assert chat.unsupported_numbers(a, chat.allowed_numbers(chat.build_context(S, q))) == [], q
+        assert (
+            guard.unsupported_numbers(a, guard.allowed_numbers(chat.build_context(S, q))) == []
+        ), q
 
 
 def test_automatic_two_dates():
@@ -340,7 +343,7 @@ def test_introduction_presents_classification():
     intro = chat.introduction(S)
     for part in ["16/08/2025", "3 polígonos candidatos", "155,31 ha", "5,9%", "não há acurácia"]:
         assert part in intro
-    assert chat.unsupported_numbers(intro, ALLOWED) == []
+    assert guard.unsupported_numbers(intro, ALLOWED) == []
 
 
 # --- orquestração ---------------------------------------------------------------------------------
@@ -467,7 +470,7 @@ def test_summary_not_mutated():
 @pytest.mark.parametrize(("text", "value"), [("3.272.300", 3272300.0), ("1.000.000,5", 1000000.5)])
 def test_parse_multi_thousands(text, value):
     """Regressão (achado pela Hypothesis): milhar com dois pontos derrubava o parser."""
-    assert [v for n in chat.parse_numbers(text) for v in n.readings] == [value]
+    assert [v for n in guard.parse_numbers(text) for v in n.readings] == [value]
 
 
 REF = {
@@ -492,16 +495,16 @@ def test_reference_in_context_and_answers_use_only_its_numbers():
     ref = ctx["referencia_mapbiomas"]
     assert ref["candidatas_sobre_cafe_mapbiomas_percentual"] == 4.7
     assert ref["candidatas_por_classe_mapbiomas_percentual"]["Pastagem"] == 34.4
-    allowed = chat.allowed_numbers(ctx)
+    allowed = guard.allowed_numbers(ctx)
     for q in ("concorda com o MapBiomas?", "qual a acurácia?"):
         a = chat.automatic_answer(q, s)
         assert "43,00 ha" in a and "4,7%" in a and "não acurácia" in a, q
-        assert chat.unsupported_numbers(a, allowed) == [], q
+        assert guard.unsupported_numbers(a, allowed) == [], q
     # percentual aninhado é percentual; o mesmo número sem % não vira "permitido" por isso
-    assert chat.unsupported_numbers("Pastagem: 34,4% das candidatas", allowed) == []
-    assert chat.unsupported_numbers("Pastagem: 34,4 ha", allowed) == ["34,4"]
+    assert guard.unsupported_numbers("Pastagem: 34,4% das candidatas", allowed) == []
+    assert guard.unsupported_numbers("Pastagem: 34,4 ha", allowed) == ["34,4"]
     # números do nome da fonte ("Coleção 11", "30 m") não entram como medidas
-    assert chat.unsupported_numbers("São 30 ha.", allowed) == ["30"]
+    assert guard.unsupported_numbers("São 30 ha.", allowed) == ["30"]
 
 
 @pytest.mark.parametrize(
@@ -550,7 +553,7 @@ def test_invalid_or_missing_date_never_breaks_the_introduction(bad):
     ],
 )
 def test_counts_areas_and_fractions_must_match_the_context(text, bad):
-    assert chat.unsupported_numbers(text, ALLOWED) == bad
+    assert guard.unsupported_numbers(text, ALLOWED) == bad
 
 
 @pytest.mark.parametrize(
@@ -568,7 +571,7 @@ def test_counts_areas_and_fractions_must_match_the_context(text, bad):
     ],
 )
 def test_true_counts_and_areas_pass(text):
-    assert chat.unsupported_numbers(text, ALLOWED) == []
+    assert guard.unsupported_numbers(text, ALLOWED) == []
 
 
 @pytest.mark.parametrize(
@@ -587,7 +590,7 @@ def test_true_counts_and_areas_pass(text):
     ],
 )
 def test_qualitative_accuracy_claims_detected(text):
-    assert chat.accuracy_claim(text)
+    assert guard.accuracy_claim(text)
 
 
 @pytest.mark.parametrize(
@@ -605,4 +608,4 @@ def test_qualitative_accuracy_claims_detected(text):
     ],
 )
 def test_honest_caveats_are_not_flagged(text):
-    assert not chat.accuracy_claim(text)
+    assert not guard.accuracy_claim(text)
