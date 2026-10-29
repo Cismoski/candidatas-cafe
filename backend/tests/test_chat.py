@@ -609,3 +609,43 @@ def test_qualitative_accuracy_claims_detected(text):
 )
 def test_honest_caveats_are_not_flagged(text):
     assert not guard.accuracy_claim(text)
+
+
+# --- value objects da guarda: a regra testada sem montar contexto ---------------------
+Q = guard.Quantity
+K = guard.Kind
+
+
+@pytest.mark.parametrize(
+    ("q", "ok"),
+    [
+        (Q("0,55", (0.55,)), True),  # valor exato
+        (Q("0,5", (0.5,)), True),  # arredondamento de 0,546 (meia unidade de 0,1)
+        (Q("0,7", (0.7,)), False),  # nenhum valor a até 0,05 de 0,7
+        (Q("12", (12.0,)), True),  # inteiro livre em prosa
+        (Q("12%", (12.0,), K.PERCENT), False),  # percentual nunca é livre
+        (Q("2", (2.0,), K.AREA), False),  # "2 ha" nunca é livre
+        (Q("155,31", (155.31,), K.AREA), True),
+        (Q("155,31%", (155.31,), K.PERCENT), False),  # área não apoia percentual
+        (Q("0,546", (0.546,), K.AREA), False),  # NDVI não apoia área
+        (Q("x", ()), False),  # token sem leitura (longo demais)
+    ],
+)
+def test_allowed_supports_by_kind(q, ok):
+    allowed = guard.Allowed(
+        plain=frozenset({0.546, 0.55}), percent=frozenset({4.4}), area=frozenset({155.31})
+    )
+    assert allowed.supports(q) is ok
+
+
+@pytest.mark.parametrize(
+    ("n", "as_total", "ok"),
+    [(3, True, True), (2, True, False), (2, False, True), (3, False, True), (4, False, False)],
+)
+def test_allowed_supports_count(n, as_total, ok):
+    assert guard.Allowed(counts=frozenset({3})).supports_count(n, as_total) is ok
+
+
+def test_quantity_is_immutable():
+    with pytest.raises(AttributeError):
+        Q("1", (1.0,)).kind = K.AREA  # type: ignore[misc]

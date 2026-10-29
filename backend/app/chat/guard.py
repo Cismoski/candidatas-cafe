@@ -3,6 +3,8 @@
 import math
 import re
 from collections.abc import Iterable
+from dataclasses import dataclass
+from enum import StrEnum
 
 from .text import _norm
 
@@ -81,7 +83,7 @@ def _numbers_in(
     elif isinstance(value, str):
         for n in parse_numbers(value):
             for v in n.readings:
-                yield v, n.percent, n.area
+                yield v, n.kind is Kind.PERCENT, n.kind is Kind.AREA
     elif isinstance(value, dict):
         for k, v in value.items():
             yield from _numbers_in(v, str(k), percent, area)
@@ -90,14 +92,54 @@ def _numbers_in(
             yield from _numbers_in(v, key, percent, area)
 
 
+class Kind(StrEnum):
+    """Tipo de uma quantidade: só se compara com valores do mesmo tipo."""
+
+    PLAIN = "simples"
+    PERCENT = "percentual"
+    AREA = "area"  # número seguido de "ha"/"hectares"
+
+
+@dataclass(frozen=True)
+class Quantity:
+    """Número citado na resposta, com as leituras possíveis (sempre em valor absoluto)."""
+
+    token: str
+    readings: tuple[float, ...]
+    kind: Kind = Kind.PLAIN
+
+    def tolerance(self, reading: float) -> float:
+        """Meia unidade da última casa escrita: "0,55" casa com 0,546; "0,5" com 0,46."""
+        return 0.5 * 10 ** -_decimals(self.token.split(" ")[0], reading) + 1e-9
+
+    def is_free_integer(self, reading: float) -> bool:
+        return self.kind is Kind.PLAIN and reading == int(reading) and int(reading) in FREE_INTEGERS
+
+
+@dataclass(frozen=True)
 class Allowed:
     """Valores do contexto, por tipo. Percentual na resposta só casa com valor
     percentual ("90%" não se apoia nos 90 polígonos) e número seguido de "ha" só
     casa com área ("0,66 ha" não se apoia no NDVI 0,66). `counts` são as
     quantidades de polígonos que o contexto informa."""
 
-    def __init__(self, plain: set[float], percent: set[float], area: set[float], counts: set[int]):
-        self.plain, self.percent, self.area, self.counts = plain, percent, area, counts
+    plain: frozenset[float] = frozenset()
+    percent: frozenset[float] = frozenset()
+    area: frozenset[float] = frozenset()
+    counts: frozenset[int] = frozenset()
+
+    def supports(self, q: Quantity) -> bool:
+        """Alguma leitura de `q` é inteiro livre ou arredondamento de um valor do mesmo tipo?"""
+        pool = {Kind.PERCENT: self.percent, Kind.AREA: self.area}.get(q.kind, self.plain)
+        return any(
+            q.is_free_integer(x) or any(abs(x - a) <= q.tolerance(x) for a in pool)
+            for x in q.readings
+        )
+
+    def supports_count(self, n: int, as_total: bool) -> bool:
+        """Contagem de polígonos: dada como total, tem de bater; como subconjunto
+        ("os 3 maiores"), basta não passar do total."""
+        return n in self.counts or (not as_total and n <= max(self.counts, default=0))
 
 
 def allowed_numbers(context: dict) -> Allowed:
@@ -115,18 +157,10 @@ def allowed_numbers(context: dict) -> Allowed:
         )
         if isinstance(n, int)
     }
-    return Allowed(plain, percent, area, counts)
+    return Allowed(frozenset(plain), frozenset(percent), frozenset(area), frozenset(counts))
 
 
-class Num:
-    __slots__ = ("token", "readings", "percent", "area")
-
-    def __init__(self, token: str, readings: list[float], percent: bool, area: bool = False):
-        self.token, self.readings, self.percent = token, readings, percent
-        self.area = area
-
-
-def parse_numbers(text: str) -> list[Num]:
+def parse_numbers(text: str) -> list[Quantity]:
     """Números do texto com as leituras possíveis (sempre em valor absoluto).
 
     "2.620,20" -> 2620.2; "0,55" -> 0.55; "2.620" é ambíguo (milhar pt-BR ou
@@ -151,9 +185,13 @@ def parse_numbers(text: str) -> list[Num]:
             mult = 1e3 if suffix == "mil" else 1e6
             readings = [x * mult for x in readings]
             tok = f"{tok} {suffix}"
-        percent = suffix.startswith(("%", "por"))
-        area = not percent and bool(_HECTARE.match(text, m.end()))
-        found.append(Num(tok + ("%" if percent else ""), readings, percent, area))
+        if suffix.startswith(("%", "por")):
+            kind, tok = Kind.PERCENT, tok + "%"
+        elif _HECTARE.match(text, m.end()):
+            kind = Kind.AREA
+        else:
+            kind = Kind.PLAIN
+        found.append(Quantity(tok, tuple(readings), kind))
     return found
 
 
@@ -169,21 +207,7 @@ def _decimals(tok: str, reading: float) -> int:
 def unsupported_numbers(reply: str, allowed: Allowed) -> list[str]:
     """Números da resposta que não são arredondamento de nenhum valor do contexto
     do mesmo tipo, mais contagens de polígonos que não batem e frações por extenso."""
-    bad = []
-    for n in parse_numbers(reply):
-        pool = allowed.percent if n.percent else allowed.area if n.area else allowed.plain
-        ok = False
-        for x in n.readings:
-            free = not n.percent and not n.area and x == int(x) and int(x) in FREE_INTEGERS
-            if free:
-                ok = True
-                break
-            tol = 0.5 * 10 ** -_decimals(n.token.split(" ")[0], x) + 1e-9
-            if any(abs(x - a) <= tol for a in pool):
-                ok = True
-                break
-        if not ok:
-            bad.append(n.token)
+    bad = [q.token for q in parse_numbers(reply) if not allowed.supports(q)]
     # "3 mil" e "5 por cento" já foram lidos acima; o resto por extenso é recusado
     norm = _norm(reply)
     words = _NUMBER.sub(" ", norm)
@@ -191,11 +215,10 @@ def unsupported_numbers(reply: str, allowed: Allowed) -> list[str]:
     bad += [m.group(0) for m in _FRACTION_WORDS.finditer(norm)]
     bad += re.findall(r"\d(?:[.,]\d+)?e[+-]?\d+", norm)  # notação científica: "1e3"
     # "7 polígonos" ou "sete talhões": inteiro pequeno não é livre quando é contagem
-    # Subconjunto ("os 3 maiores polígonos") passa se não passar do total.
     for m in _COUNT.finditer(norm):
         n = int(m.group(1)) if m.group(1).isdigit() else _SMALL_WORDS[m.group(1)]
-        as_total = _TOTAL_WORDS & set(re.findall(r"\w+", norm[: m.start()])[-2:])
-        if n not in allowed.counts and (as_total or n > max(allowed.counts, default=0)):
+        as_total = bool(_TOTAL_WORDS & set(re.findall(r"\w+", norm[: m.start()])[-2:]))
+        if not allowed.supports_count(n, as_total):
             bad.append(m.group(0))
     return bad
 
