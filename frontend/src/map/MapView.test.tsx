@@ -30,10 +30,12 @@ class FakeMap extends Emitter {
   layers: string[] = [];
   sources = new Map<string, { image?: unknown; data?: unknown }>();
   style: unknown;
+  transformStyle: unknown;
   visibility: Record<string, string> = {};
-  constructor(opts: { style: unknown }) {
+  constructor(opts: { style: unknown; transformStyle?: unknown }) {
     super();
     this.style = opts.style;
+    this.transformStyle = opts.transformStyle;
     maps.push(this);
   }
   addControl() {}
@@ -115,7 +117,7 @@ vi.mock("maplibre-gl", () => ({
 vi.mock("maplibre-gl/dist/maplibre-gl.css", () => ({}));
 vi.mock("maplibre-gl/dist/maplibre-gl-worker.mjs?url", () => ({ default: "/worker.mjs" }));
 
-const { MapView } = await import("./MapView");
+const { MapView, fixBasemapStyle } = await import("./MapView");
 
 const COORDS: [LngLat, LngLat, LngLat, LngLat] = [
   [-46.7, -21.3],
@@ -305,4 +307,37 @@ it("referência que chega antes das outras ainda fica acima delas", async () => 
   c?.resolve(bitmap("classes"));
   await flush();
   expect(map.layers.slice(0, 3)).toEqual(["overlay-rgb", "overlay-classes", "overlay-reference"]);
+});
+
+it("estilo do mapa base: ref_length nulo vira 99 só nos filtros que o leem", () => {
+  // Filtro copiado da camada highway-shield-non-us do positron (OpenFreeMap)
+  const shield = [
+    "all",
+    ["<=", ["get", "ref_length"], 6],
+    ["match", ["get", "network"], ["us-highway", "us-interstate", "us-state"], false, true],
+  ];
+  const other = ["==", ["get", "class"], "motorway"];
+  const style = {
+    version: 8 as const,
+    sources: {},
+    layers: [
+      { id: "shield", type: "symbol" as const, source: "s", filter: shield },
+      { id: "road", type: "line" as const, source: "s", filter: other },
+      { id: "bg", type: "background" as const },
+    ],
+  };
+  const out = fixBasemapStyle(undefined, style as never);
+  expect((out.layers[0] as { filter: unknown }).filter).toEqual([
+    "all",
+    ["<=", ["coalesce", ["get", "ref_length"], 99], 6],
+    shield[2],
+  ]);
+  expect(out.layers[1]).toEqual(style.layers[1]);
+  expect(out.layers[2]).toEqual(style.layers[2]);
+  expect(style.layers[0]?.filter?.[1]).toEqual(["<=", ["get", "ref_length"], 6]); // não muta a entrada
+});
+
+it("mapa é criado com o ajuste de estilo do mapa base", () => {
+  const { map } = setup();
+  expect(map.transformStyle).toBe(fixBasemapStyle);
 });

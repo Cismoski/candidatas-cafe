@@ -10,6 +10,7 @@ import {
   Popup,
   ScaleControl,
   setWorkerUrl,
+  type StyleSpecification,
 } from "maplibre-gl";
 // O worker do MapLibre 6 é um arquivo à parte, resolvido por import.meta.url;
 // empacotado pelo Vite esse caminho quebra, então o Vite emite o arquivo e
@@ -29,6 +30,26 @@ import { formatHa, formatIndex } from "../lib/format";
  */
 
 export const BASEMAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
+/**
+ * O positron filtra escudos de rodovia com `["<=", ["get", "ref_length"], 6]`;
+ * vias sem número têm ref_length nulo e o MapLibre avisa no console a cada
+ * tile. O resultado não muda (sem número, sem escudo): só explicita o padrão.
+ */
+export function fixBasemapStyle(_prev: unknown, next: StyleSpecification): StyleSpecification {
+  const patch = (e: unknown): unknown =>
+    !Array.isArray(e)
+      ? e
+      : e[0] === "get" && e[1] === "ref_length" && e.length === 2
+        ? ["coalesce", e, 99]
+        : e.map(patch);
+  return {
+    ...next,
+    layers: next.layers.map((l) =>
+      "filter" in l && l.filter ? ({ ...l, filter: patch(l.filter) } as typeof l) : l,
+    ),
+  };
+}
+
 /** Guaxupé (MG): vista inicial antes de qualquer análise. */
 export const DEFAULT_CENTER: LngLat = [-46.71, -21.305];
 
@@ -90,6 +111,7 @@ export function MapView(props: MapViewProps) {
       map = new MLMap({
         container: container.current,
         style: BASEMAP_STYLE,
+        transformStyle: fixBasemapStyle,
         center: DEFAULT_CENTER,
         zoom: 12,
         attributionControl: { compact: true },
