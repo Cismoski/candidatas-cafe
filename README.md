@@ -1,4 +1,4 @@
-# Global Watch — café
+# Candidatas a café
 
 Assistente geoespacial que recebe uma imagem Sentinel-2 multiespectral, processa
 de verdade no servidor (Python) e desenha **áreas candidatas a café**, com área em
