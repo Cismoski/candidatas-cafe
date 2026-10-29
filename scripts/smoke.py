@@ -18,6 +18,7 @@ import json
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 FOREIGN_ORIGIN = "https://origem-nao-autorizada.example"
@@ -37,6 +38,18 @@ def request(url: str, method: str = "GET", headers: dict | None = None, timeout:
             return r.status, {k.lower(): v for k, v in r.headers.items()}, r.read()
     except urllib.error.HTTPError as e:
         return e.code, {k.lower(): v for k, v in e.headers.items()}, e.read()
+    except OSError as e:  # DNS, TLS, conexão recusada: vira FALHOU, não traceback
+        print(f"  (sem resposta de {url}: {e})")
+        return 0, {}, b""
+
+
+def csp_directive(csp: str, name: str) -> list[str]:
+    """Fontes de uma diretiva da CSP (lista vazia se ela não existir)."""
+    for part in csp.split(";"):
+        tokens = part.split()
+        if tokens and tokens[0] == name:
+            return tokens[1:]
+    return []
 
 
 def wake(api: str, budget_s: float = 120) -> bool:
@@ -74,7 +87,10 @@ def main() -> int:
     status, _, _ = request(f"{api}/analyses/qualquer/files/geojson")
     check(status == 401, f"download sem token -> 401 (recebido {status})")
 
-    pre = {"Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "authorization"}
+    pre = {
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "authorization",
+    }
     _, h, _ = request(f"{api}/analyses", "OPTIONS", {**pre, "Origin": web})
     check(h.get("access-control-allow-origin") == web, "CORS aceita a origem do frontend")
     _, h, _ = request(f"{api}/analyses", "OPTIONS", {**pre, "Origin": FOREIGN_ORIGIN})
@@ -86,12 +102,20 @@ def main() -> int:
     status, h, body = request(f"{web}/")
     check(status == 200 and b'id="root"' in body, "frontend publicado")
     csp = h.get("content-security-policy", "")
-    check(api in csp.split("connect-src", 1)[-1].split(";", 1)[0], "CSP do Pages libera a API")
-    check("frame-ancestors 'none'" in csp or h.get("x-frame-options") == "DENY", "Pages bloqueia iframe")
+    api_origin = "{0.scheme}://{0.netloc}".format(urllib.parse.urlsplit(api))
+    check(api_origin in csp_directive(csp, "connect-src"), "CSP do Pages libera a API")
+    check(
+        csp_directive(csp, "frame-ancestors") == ["'none'"] or h.get("x-frame-options") == "DENY",
+        "Pages bloqueia iframe",
+    )
     check(h.get("x-content-type-options") == "nosniff", "Pages envia X-Content-Type-Options")
 
-    status, _, _ = request(f"{web}/amostra/imagem_multiespectral.tif", "HEAD")
-    check(status == 200, "amostra do kit servida pelo Pages")
+    # O Pages devolve index.html com 200 para caminho inexistente: conferir o tipo
+    status, h, _ = request(f"{web}/amostra/imagem_multiespectral.tif", "HEAD")
+    check(
+        status == 200 and "text/html" not in h.get("content-type", "text/html"),
+        f"amostra do kit servida pelo Pages ({h.get('content-type', 'sem content-type')})",
+    )
 
     failed = [w for ok, w in results if not ok]
     print(f"\n{len(results) - len(failed)}/{len(results)} verificações ok")

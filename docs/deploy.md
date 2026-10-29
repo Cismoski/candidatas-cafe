@@ -69,7 +69,10 @@ rede. Por isso a tela de login chama `/health` ao abrir:
 - até 4 s sem resposta: nada aparece;
 - depois disso, ou se der erro de rede/502: aviso "o servidor gratuito estava
   dormindo e está acordando (até 1 minuto)", com nova tentativa a cada 3 s;
-- 90 s sem resposta: erro, com orientação para recarregar.
+- 90 s sem resposta: erro, mas segue tentando a cada 15 s e some quando a API voltar;
+- clique em "entrar" com a API dormindo: o login falha por rede, a credencial do
+  Google (válida por ~1 h) fica guardada na memória da página e o login é refeito
+  sozinho quando o `/health` responder.
 
 Testes: `frontend/src/lib/useServerWarmup.test.ts` (BVA em 3,999 s / 4 s, retry,
 timeout por tentativa, desistência, cancelamento ao desmontar).
@@ -130,7 +133,7 @@ OAuth Client do Google já usado em desenvolvimento.
    Confere `/health` (esperando o serviço acordar), 401 sem token, CORS só para a
    origem do Pages, headers de segurança da API e do Pages, CSP com a API e
    amostras servidas. Validado localmente contra o container e o `wrangler pages
-   dev` (13/13).
+   dev`.
 
 ## Pontos a conferir no deploy real
 
@@ -140,6 +143,14 @@ OAuth Client do Google já usado em desenvolvimento.
   se forem menos, o IP pode ser forjado pelo cliente. Conferir no log de acesso
   do Render, com uma requisição que mande um `X-Forwarded-For` forjado.
 - Primeira análise logo após acordar: confirmar que termina dentro de 300 s.
+- Persistência do aviso "acordando" com a API no ar: quase sempre é `CORS_ORIGINS`
+  diferente da URL do Pages (para o navegador, recusa de CORS e servidor dormindo
+  são o mesmo erro de rede). Conferir com o `smoke.py`.
+- O uvicorn roda sem `--proxy-headers`, então `request.url.scheme` é `http` atrás
+  do proxy do Render. Hoje nenhuma resposta monta URL absoluta; se um dia montar
+  (ex.: redirect de barra final), habilitar `--proxy-headers` com
+  `--forwarded-allow-ips` restrito. O IP do cliente não depende disso
+  (`client_ip` lê o `X-Forwarded-For` pela direita).
 - Saída para o MapBiomas (`storage.googleapis.com`) a partir do Render: se
   bloquear, a análise segue com a referência "indisponível".
 
