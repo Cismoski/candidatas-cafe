@@ -3,7 +3,7 @@
 # Plano free: 512 MB, dorme após 15 min sem tráfego, disco efêmero (docs/deploy.md).
 services:
   - type: web
-    name: globalwatch-api
+    name: cafe-candidatas-api
     runtime: docker
     plan: free
     region: virginia # a mais próxima do Brasil entre as do Render
@@ -18,7 +18,7 @@ services:
       - key: JWT_SECRET
         generateValue: true # 256 bits aleatórios, gerados pelo Render
       - key: CORS_ORIGINS
-        sync: false # ex.: https://globalwatch-cafe.pages.dev
+        sync: false # ex.: https://cafe-candidatas.pages.dev
       - key: GEMINI_API_KEY
         sync: false # vazio = só respostas automáticas
       - key: TRUSTED_PROXY_HOPS

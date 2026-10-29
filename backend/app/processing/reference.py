@@ -24,7 +24,7 @@ from rasterio.warp import reproject
 from .classify import CLASS_LABELS_PT, LandClass
 from .reading import Grid
 
-log = logging.getLogger("globalwatch.reference")
+log = logging.getLogger("cafe.reference")
 
 MAPBIOMAS_URL = (
     "https://storage.googleapis.com/mapbiomas-public/initiatives/brasil/collection11/"

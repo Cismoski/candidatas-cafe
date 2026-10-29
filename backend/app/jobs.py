@@ -29,7 +29,7 @@ from .db import Database
 from .processing.config import ClassificationConfig
 from .storage import INPUT_NAMES, Storage
 
-log = logging.getLogger("globalwatch.jobs")
+log = logging.getLogger("cafe.jobs")
 
 GENERIC_ERROR = "Não foi possível processar a imagem. Verifique o arquivo e tente novamente."
 TIMEOUT_ERROR = "O processamento excedeu o tempo limite. Tente uma imagem menor."

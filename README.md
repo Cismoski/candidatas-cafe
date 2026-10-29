@@ -140,7 +140,7 @@ Sem `GEMINI_API_KEY`, o chat funciona com as respostas automáticas.
 
 Pipeline sem API: `cd backend && uv run python -m app.processing IMAGEM.tif saida/ --scl SCL.tif [--second OUTRA.tif]`.
 
-Docker: `docker build -t globalwatch-api backend && docker run -p 8000:8000 --env-file backend/.env globalwatch-api`.
+Docker: `docker build -t cafe-candidatas-api backend && docker run -p 8000:8000 --env-file backend/.env cafe-candidatas-api`.
 
 Outra data: `uv run scripts/baixar_cena.py --help` (lê só a janela da área nos COGs do Earth Search).
 

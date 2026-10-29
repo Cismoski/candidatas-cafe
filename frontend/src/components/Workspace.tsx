@@ -93,7 +93,7 @@ export function Workspace() {
     <div className="ws">
       <header className="bar">
         <p className="bar__brand">
-          Global Watch <span className="bar__product">café</span>
+          Candidatas a <span className="bar__product">café</span>
         </p>
         <p className="bar__user" title={user?.email}>
           {user?.name ?? user?.email}

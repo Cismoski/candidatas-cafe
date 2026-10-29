@@ -33,7 +33,7 @@ from .render import (
 from .vectorize import feature_collection, polygons_from_labels, to_wgs84
 
 # 2: mode "temporal" -> "two_dates"; temporal_ndvi_shift/temporal_shift_pixels
-log = logging.getLogger("globalwatch.pipeline")
+log = logging.getLogger("cafe.pipeline")
 
 SUMMARY_SCHEMA_VERSION = 2
 

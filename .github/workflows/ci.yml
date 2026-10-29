@@ -66,14 +66,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: docker build -t globalwatch-api:ci backend
+      - run: docker build -t cafe-candidatas-api:ci backend
       # A imagem sobe sem root e responde ao /health
       - run: |
           docker run -d --name api -p 8000:8000 \
             -e GOOGLE_CLIENT_ID=ci.apps.googleusercontent.com \
             -e JWT_SECRET="$(openssl rand -hex 32)" \
             -e MAPBIOMAS_URL= \
-            globalwatch-api:ci
+            cafe-candidatas-api:ci
           test "$(docker exec api id -u)" = "10001"
           for i in $(seq 30); do curl -fsS localhost:8000/health && exit 0; sleep 1; done
           docker logs api; exit 1

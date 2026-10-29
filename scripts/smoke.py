@@ -4,8 +4,8 @@
 # ///
 """Verificação do deploy: o que dá para conferir de fora, sem login.
 
-    uv run scripts/smoke.py --api https://globalwatch-api.onrender.com \\
-                            --web https://globalwatch-cafe.pages.dev
+    uv run scripts/smoke.py --api https://cafe-candidatas-api.onrender.com \\
+                            --web https://cafe-candidatas.pages.dev
 
 Confere: API acordada e saudável; rotas protegidas recusam sem token; CORS
 aceita só a origem do frontend; headers de segurança na API e no Pages; CSP do

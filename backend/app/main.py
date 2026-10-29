@@ -48,7 +48,7 @@ from .uploads import (
     validate_scl,
 )
 
-log = logging.getLogger("globalwatch")
+log = logging.getLogger("cafe")
 
 DEFAULT_MAX_BODY = 64 * 1024  # JSON de login, etc.
 
@@ -251,7 +251,7 @@ def create_app(
             await task
         app.state.jobs.shutdown()
 
-    app = FastAPI(title="Global Watch — café", version="1.0.0", lifespan=lifespan)
+    app = FastAPI(title="Candidatas a café", version="1.0.0", lifespan=lifespan)
     app.state.settings = settings
     db = app.state.db = Database(settings.db_path)
     storage = app.state.storage = Storage(settings.data_dir)

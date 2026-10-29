@@ -1,5 +1,5 @@
 [project]
-name = "globalwatch-backend"
+name = "cafe-candidatas-backend"
 version = "0.1.0"
 description = "API e pipeline de geoprocessamento para identificar áreas candidatas de café em imagens Sentinel-2"
 requires-python = ">=3.13,<3.14"

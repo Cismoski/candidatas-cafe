@@ -87,7 +87,7 @@ export function LoginScreen() {
     <div className="login">
       <section className="login__intro">
         <p className="bar__brand">
-          Global Watch <span className="bar__product">café</span>
+          Candidatas a <span className="bar__product">café</span>
         </p>
         <h1 className="login__title">Onde pode haver café nesta imagem de satélite?</h1>
         <p className="login__lead">
