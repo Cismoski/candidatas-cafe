@@ -113,8 +113,9 @@ Configurar em Settings > Secrets and variables > Actions > Variables:
 Gemini: o modelo padrão é `gemini-3.5-flash-lite` (o `gemini-2.5-flash-lite` saiu
 para projetos novos e responde 404). A chave precisa ser de um projeto **no nível
 gratuito**: um projeto com faturamento pré-pago e sem crédito responde 402. O log
-mostra o código com uma dica fixa. O nível gratuito do Google AI Studio que tem limites próprios por minuto e por dia [VERIFICAR os valores atuais
-em https://ai.google.dev/gemini-api/docs/rate-limits antes de citar números]. Ao
+mostra o código com uma dica fixa. O nível gratuito tem limites próprios por minuto e por dia. A página
+https://ai.google.dev/gemini-api/docs/rate-limits não traz mais os números e
+remete ao painel do AI Studio, então não os citamos aqui. Ao
 estourar, o circuit breaker abre e o chat volta às respostas automáticas.
 
 ## Passo a passo
@@ -155,11 +156,14 @@ OAuth Client do Google já usado em desenvolvimento.
 
 ## Pontos a conferir no deploy real
 
-- **`TRUSTED_PROXY_HOPS=1`** [VERIFICAR NO DEPLOY]: assumimos que o proxy do Render
-  acrescenta exatamente uma entrada ao `X-Forwarded-For`. Se forem mais, o rate
-  limit por IP passa a contar o IP do proxy (todos os usuários dividem a cota);
-  se forem menos, o IP pode ser forjado pelo cliente. Conferir no log de acesso
-  do Render, com uma requisição que mande um `X-Forwarded-For` forjado.
+- **`TRUSTED_PROXY_HOPS=1`** (em aberto): assumimos que o proxy do Render
+  acrescenta exatamente uma entrada ao `X-Forwarded-For`. Teste em 29/10/2026:
+  12 logins inválidos seguidos do mesmo IP, com e sem `X-Forwarded-For` forjado,
+  receberam 401 todos, sem nenhum 429 (o limite é 10/min). Com um único worker,
+  isso indica que a chave muda a cada requisição: a entrada usada é de um proxy
+  intermediário que varia, não o IP do cliente. O limite por IP do login e do
+  upload não protege em produção até ajustar o número de saltos. As cotas
+  por usuário (análises/dia, chat/dia) não dependem disso e continuam valendo.
 - Primeira análise logo após acordar: confirmar que termina dentro de 300 s.
 - Persistência do aviso "acordando" com a API no ar: quase sempre é `CORS_ORIGINS`
   diferente da URL do Pages (para o navegador, recusa de CORS e servidor dormindo
